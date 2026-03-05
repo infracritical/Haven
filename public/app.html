@@ -1794,6 +1794,8 @@
     <button class="channel-ctx-item mod-only" data-action="create-sub-channel">📁 Create Sub-channel</button>
     <hr class="channel-ctx-sep admin-only">
     <button class="channel-ctx-item admin-only" data-action="organize" style="display:none">📋 Organize</button>
+    <button class="channel-ctx-item admin-only" data-action="move-to-parent" style="display:none">📦 Move to…</button>
+    <button class="channel-ctx-item admin-only" data-action="promote-channel" style="display:none">⬆️ Promote to Channel</button>
     <button class="channel-ctx-item admin-only" data-action="toggle-streams">🖥️ Toggle Streams</button>
     <button class="channel-ctx-item admin-only" data-action="toggle-music">🎵 Toggle Music</button>
     <button class="channel-ctx-item admin-only" data-action="slow-mode">🐢 Slow Mode</button>
@@ -1813,7 +1815,10 @@
   <!-- Organize Sub-channels Modal -->
   <div class="modal-overlay" id="organize-modal" style="display:none">
     <div class="modal" style="max-width:500px">
-      <h3 id="organize-modal-title">📋 Organize</h3>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <button id="organize-back-btn" class="btn-sm" style="display:none;padding:3px 8px;font-size:0.8rem" title="Back to channel list">← Back</button>
+        <h3 id="organize-modal-title" style="margin:0">📋 Organize</h3>
+      </div>
       <p class="modal-desc" id="organize-modal-parent-name"></p>
 
       <div class="organize-toolbar">
@@ -1850,6 +1855,18 @@
 
       <div class="modal-actions">
         <button class="btn-sm btn-accent" id="organize-done-btn">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Move Channel Picker Modal -->
+  <div class="modal-overlay" id="reparent-modal" style="display:none">
+    <div class="modal" style="max-width:380px">
+      <h3 id="reparent-modal-title">📦 Move Channel</h3>
+      <p class="modal-desc" id="reparent-modal-desc"></p>
+      <div id="reparent-channel-list" class="organize-list" style="max-height:300px;overflow-y:auto"></div>
+      <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button class="btn-sm" id="reparent-cancel-btn">Cancel</button>
       </div>
     </div>
   </div>

@@ -158,6 +158,7 @@ class HavenApp {
     this._setupImageModePicker();
     this._setupLightbox();
     this._setupOnlineOverlay();
+    this._setupModalExpand();
     this._checkForUpdates();
     this._initDesktopAppBanner();
 
@@ -1270,6 +1271,33 @@ class HavenApp {
       if (!code) return;
       this._closeChannelCtxMenu();
       this._openOrganizeModal(code);
+    });
+    // Move to parent (reparent)
+    document.querySelector('[data-action="move-to-parent"]')?.addEventListener('click', () => {
+      const code = this._ctxMenuChannel;
+      if (!code) return;
+      this._closeChannelCtxMenu();
+      this._openReparentModal(code);
+    });
+    // Promote sub-channel to top-level
+    document.querySelector('[data-action="promote-channel"]')?.addEventListener('click', () => {
+      const code = this._ctxMenuChannel;
+      if (!code) return;
+      this._closeChannelCtxMenu();
+      const ch = this.channels.find(c => c.code === code);
+      if (!ch || !ch.parent_channel_id) return;
+      if (confirm(`Promote "${ch.name}" to a top-level channel?`)) {
+        this.socket.emit('reparent-channel', { code, newParentCode: null });
+      }
+    });
+    // Reparent modal cancel
+    document.getElementById('reparent-cancel-btn')?.addEventListener('click', () => {
+      document.getElementById('reparent-modal').style.display = 'none';
+    });
+    document.getElementById('reparent-modal')?.addEventListener('click', (e) => {
+      if (e.target.classList.contains('modal-overlay')) {
+        document.getElementById('reparent-modal').style.display = 'none';
+      }
     });
     // Organize modal controls
     document.getElementById('organize-global-sort')?.addEventListener('change', (e) => {
@@ -3326,6 +3354,7 @@ class HavenApp {
       const messagesEl = document.getElementById('messages');
       let longPressTimer = null;
       let longPressTriggered = false;
+      let touchStartX = 0, touchStartY = 0;
 
       messagesEl.addEventListener('touchstart', (e) => {
         // Don't interfere with toolbar buttons, links, images, reactions, spoilers
@@ -3334,8 +3363,11 @@ class HavenApp {
             e.target.closest('.spoiler') || e.target.closest('.reply-banner')) return;
 
         longPressTriggered = false;
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
         const msgEl = e.target.closest('.message, .message-compact');
 
+        // 750 ms delay — long enough to not fire on a quick scroll or tap
         longPressTimer = setTimeout(() => {
           longPressTriggered = true;
           // Deselect any previously selected message
@@ -3345,13 +3377,18 @@ class HavenApp {
             // Haptic feedback if available
             if (navigator.vibrate) navigator.vibrate(30);
           }
-        }, 500);
+        }, 750);
       }, { passive: true });
 
-      // Cancel long-press if finger moves (scrolling)
-      messagesEl.addEventListener('touchmove', () => {
-        clearTimeout(longPressTimer);
-        longPressTimer = null;
+      // Cancel long-press only if finger moves more than ~10 px (i.e. actually scrolling)
+      messagesEl.addEventListener('touchmove', (e) => {
+        if (!longPressTimer) return;
+        const dx = e.touches[0].clientX - touchStartX;
+        const dy = e.touches[0].clientY - touchStartY;
+        if (Math.sqrt(dx * dx + dy * dy) > 10) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
       }, { passive: true });
 
       messagesEl.addEventListener('touchend', (e) => {
@@ -3375,6 +3412,16 @@ class HavenApp {
         // Dismiss any open toolbar on normal tap
         messagesEl.querySelectorAll('.msg-selected').forEach(el => el.classList.remove('msg-selected'));
       });
+
+      // Also dismiss on touchstart (fires before click, catches scroll-starts too)
+      document.addEventListener('touchstart', (e) => {
+        // Don't dismiss if tapping the toolbar itself
+        if (e.target.closest('.msg-toolbar')) return;
+        const selected = messagesEl.querySelectorAll('.msg-selected');
+        if (selected.length) {
+          selected.forEach(el => el.classList.remove('msg-selected'));
+        }
+      }, { passive: true });
 
       // Deselect when tapping input area
       document.getElementById('message-input').addEventListener('focus', () => {
@@ -5310,6 +5357,58 @@ class HavenApp {
     this._hideImageContextMenu();
   }
 
+  /* ── Modal Expand / Maximize ────────────────────────── */
+
+  _setupModalExpand() {
+    // Global guard: track mousedown origin so overlay click-to-close doesn't fire
+    // when a resize drag ends outside the modal (cursor lands on overlay)
+    let _overlayMouseDownTarget = null;
+    document.addEventListener('mousedown', (e) => { _overlayMouseDownTarget = e.target; }, true);
+    document.addEventListener('click', (e) => {
+      // If click landed on a modal-overlay but mousedown started inside the modal, suppress close
+      if (e.target.classList && e.target.classList.contains('modal-overlay') &&
+          _overlayMouseDownTarget && _overlayMouseDownTarget !== e.target) {
+        e.stopImmediatePropagation();
+      }
+    }, true); // capturing phase — fires before individual handlers
+
+    // Auto-inject an expand/maximize toggle button into every modal's header
+    document.querySelectorAll('.modal').forEach(modal => {
+      // Find the header container — either .settings-header / .activities-header or the first h3
+      let headerContainer = modal.querySelector('.settings-header, .activities-header');
+      let header = modal.querySelector('h3');
+      if (!header) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'modal-expand-btn';
+      btn.title = 'Expand / Restore';
+      btn.textContent = '⛶';
+
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isMax = modal.classList.toggle('modal-maximized');
+        btn.textContent = isMax ? '⊖' : '⛶';
+        btn.title = isMax ? 'Restore size' : 'Expand';
+      });
+
+      if (headerContainer) {
+        // Insert before the close button
+        const closeBtn = headerContainer.querySelector('.settings-close-btn');
+        if (closeBtn) {
+          headerContainer.insertBefore(btn, closeBtn);
+        } else {
+          headerContainer.appendChild(btn);
+        }
+      } else {
+        // Standard modal: make h3 flex and append button
+        header.style.display = 'flex';
+        header.style.alignItems = 'center';
+        btn.style.marginLeft = 'auto';
+        header.appendChild(btn);
+      }
+    });
+  }
+
   /** Show a custom image context menu (Save / Copy / Open in tab) */
   _showImageContextMenu(e, src) {
     this._hideImageContextMenu();
@@ -6394,6 +6493,18 @@ class HavenApp {
       const hasSubs = ch && !ch.parent_channel_id && this.channels.some(c => c.parent_channel_id === ch.id);
       organizeBtn.style.display = (canManageChannels && hasSubs) ? '' : 'none';
     }
+    // Show "Move to…" for channels that can become sub-channels (no children of their own)
+    const moveToBtn = menu.querySelector('[data-action="move-to-parent"]');
+    if (moveToBtn && ch) {
+      const hasChildren = this.channels.some(c => c.parent_channel_id === ch.id);
+      // Can move if: admin, not a DM, and has no children (can't nest 2 levels)
+      moveToBtn.style.display = (canManageChannels && !ch.is_dm && !hasChildren) ? '' : 'none';
+    }
+    // Show "Promote to Channel" only for sub-channels
+    const promoteBtn = menu.querySelector('[data-action="promote-channel"]');
+    if (promoteBtn && ch) {
+      promoteBtn.style.display = (canManageChannels && ch.parent_channel_id) ? '' : 'none';
+    }
     // Update toggle indicators for streams/music
     const streamsBtn = menu.querySelector('[data-action="toggle-streams"]');
     const musicBtn = menu.querySelector('[data-action="toggle-music"]');
@@ -6514,6 +6625,70 @@ class HavenApp {
     this._dmCtxMenuCode = null;
   }
 
+  /* ── Re-parent channel modal (move to / promote) ───── */
+
+  _openReparentModal(code) {
+    const ch = this.channels.find(c => c.code === code);
+    if (!ch) return;
+
+    const titleEl = document.getElementById('reparent-modal-title');
+    const descEl = document.getElementById('reparent-modal-desc');
+    const listEl = document.getElementById('reparent-channel-list');
+
+    titleEl.textContent = '📦 Move Channel';
+    descEl.textContent = `Select a new parent for "${ch.name}"`;
+
+    // Build list of valid parent targets (top-level channels that aren't this one)
+    const targets = this.channels.filter(c =>
+      !c.is_dm &&
+      !c.parent_channel_id &&  // Must be a top-level channel
+      c.id !== ch.id &&         // Can't parent under self
+      c.id !== ch.parent_channel_id  // Skip current parent (already there)
+    ).sort((a, b) => (a.position || 0) - (b.position || 0));
+
+    let html = '';
+
+    // If currently a sub-channel, show "Promote to top-level" option at the top
+    if (ch.parent_channel_id) {
+      html += `<div class="organize-item reparent-option" data-target="__top__" style="border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;padding-bottom:8px">
+        <span style="opacity:0.5">⬆️</span>
+        <span style="flex:1"><strong>Promote to top-level channel</strong></span>
+      </div>`;
+    }
+
+    for (const t of targets) {
+      const subCount = this.channels.filter(c => c.parent_channel_id === t.id).length;
+      const badge = subCount > 0 ? ` <span style="opacity:0.4;font-size:0.8em">(${subCount} sub-ch)</span>` : '';
+      html += `<div class="organize-item reparent-option" data-target="${t.code}">
+        <span style="opacity:0.5">#</span>
+        <span style="flex:1">${this._escapeHtml(t.name)}${badge}</span>
+      </div>`;
+    }
+
+    if (!targets.length && !ch.parent_channel_id) {
+      html += '<p style="text-align:center;opacity:0.5;padding:16px;font-size:0.85rem">No valid parent channels available</p>';
+    }
+
+    listEl.innerHTML = html;
+
+    // Wire up click handlers on the targets
+    listEl.querySelectorAll('.reparent-option').forEach(el => {
+      el.addEventListener('click', () => {
+        const target = el.dataset.target;
+        const newParentCode = target === '__top__' ? null : target;
+        const action = newParentCode === null
+          ? `Promote "${ch.name}" to a top-level channel?`
+          : `Move "${ch.name}" under "${this.channels.find(c => c.code === newParentCode)?.name || target}"?`;
+        if (confirm(action)) {
+          this.socket.emit('reparent-channel', { code, newParentCode });
+          document.getElementById('reparent-modal').style.display = 'none';
+        }
+      });
+    });
+
+    document.getElementById('reparent-modal').style.display = 'flex';
+  }
+
   /* ── Organize sub-channels modal ─────────────────────── */
 
   _openOrganizeModal(parentCode, serverLevel) {
@@ -6539,6 +6714,8 @@ class HavenApp {
       const catSortSel = document.getElementById('organize-cat-sort');
       if (catSortSel) catSortSel.value = this._organizeCatSort;
       document.getElementById('organize-tag-input').value = '';
+      const backBtn = document.getElementById('organize-back-btn');
+      if (backBtn) backBtn.style.display = 'none';
       this._renderOrganizeList();
       document.getElementById('organize-modal').style.display = 'flex';
       return;
@@ -6567,6 +6744,14 @@ class HavenApp {
     const catSortSel = document.getElementById('organize-cat-sort');
     if (catSortSel) catSortSel.value = this._organizeCatSort;
     document.getElementById('organize-tag-input').value = '';
+    const backBtn = document.getElementById('organize-back-btn');
+    if (backBtn) {
+      backBtn.style.display = '';
+      // Replace listener with a fresh one each time
+      const newBtn = backBtn.cloneNode(true);
+      backBtn.parentNode.replaceChild(newBtn, backBtn);
+      newBtn.addEventListener('click', () => this._openOrganizeModal(null, true));
+    }
     this._renderOrganizeList();
     document.getElementById('organize-modal').style.display = 'flex';
   }
@@ -6673,10 +6858,12 @@ class HavenApp {
         const sel = this._organizeSelected === ch.code;
         const tagBadge = ch.category ? `<span class="organize-tag-badge">${this._escapeHtml(ch.category)}</span>` : '';
         const icon = this._organizeServerLevel ? '#' : (ch.is_private ? '🔒' : '↳');
-        html += `<div class="organize-item${sel ? ' selected' : ''}" data-code="${ch.code}">
+        const hasSubs = this._organizeServerLevel && this.channels.some(c => c.parent_channel_id === ch.id);
+        const drillHint = hasSubs ? `<span class="organize-drill-hint" title="Double-click to organize sub-channels">▶</span>` : '';
+        html += `<div class="organize-item${sel ? ' selected' : ''}${hasSubs ? ' organize-has-subs' : ''}" data-code="${ch.code}">
           <span style="opacity:0.5">${icon}</span>
           <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this._escapeHtml(ch.name)}</span>
-          ${tagBadge}
+          ${tagBadge}${drillHint}
         </div>`;
       }
     }
@@ -6696,6 +6883,15 @@ class HavenApp {
         document.getElementById('organize-tag-input').value = (ch && ch.category) || '';
         this._renderOrganizeList();
       });
+      // Double-click on a parent channel (server-level mode) drills into its sub-channels
+      if (this._organizeServerLevel) {
+        el.addEventListener('dblclick', () => {
+          const ch = this.channels.find(c => c.code === el.dataset.code);
+          if (!ch) return;
+          const hasSubs = this.channels.some(c => c.parent_channel_id === ch.id);
+          if (hasSubs) this._openOrganizeModal(ch.code);
+        });
+      }
     });
 
     // Click tag header to select category

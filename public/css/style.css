@@ -3992,7 +3992,10 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   display: none;
 }
 
-.message-compact:hover .compact-time { display: block; }
+/* Only show compact timestamp on real mouse hover */
+@media (hover: hover) {
+  .message-compact:hover .compact-time { display: block; }
+}
 
 .system-message {
   padding: 4px 8px;
@@ -4824,6 +4827,48 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   width: 90%;
   max-width: 400px;
   box-shadow: 0 12px 48px rgba(0,0,0,0.5);
+  resize: both;
+  overflow: auto;
+  min-width: 280px;
+  min-height: 180px;
+}
+
+/* Maximized modal fills the viewport */
+.modal.modal-maximized {
+  width: 96vw !important;
+  height: 92vh !important;
+  max-width: 96vw !important;
+  max-height: 92vh !important;
+  border-radius: 8px;
+  transition: none;
+}
+
+/* Disable resize handle on small modals (confirmation dialogs, etc.) */
+.modal[style*="max-width:380px"] { resize: none; }
+
+/* Expand/restore toggle button in modal headers */
+.modal-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  font-size: 14px;
+  background: none;
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  margin-left: 8px;
+  padding: 0;
+  vertical-align: middle;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+.modal-expand-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.2);
 }
 
 .modal h3 {
@@ -6087,8 +6132,11 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   z-index: 10;
 }
 
-.message:hover .msg-toolbar,
-.message-compact:hover .msg-toolbar { display: flex; }
+/* Only show toolbar on real mouse hover — not on touch-triggered :hover */
+@media (hover: hover) {
+  .message:hover .msg-toolbar,
+  .message-compact:hover .msg-toolbar { display: flex; }
+}
 
 /* Hide toolbar while in edit mode */
 .message.editing .msg-toolbar,
@@ -7196,6 +7244,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   flex-direction: column;
   overflow: hidden;
   padding: 0;
+  resize: both;
 }
 
 /* ── Activities / Games Launcher ──────────────────────── */
@@ -8191,25 +8240,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   #voice-join-btn { display: none !important; }
   .mobile-voice-join { display: flex !important; }
 
-  /* Message toolbar — hidden until tapped */
-  .msg-toolbar {
-    position: static;
-    display: none;
-    margin-top: 4px;
-    box-shadow: none;
-    border: none;
-    background: none;
-    padding: 0;
-    gap: 4px;
-  }
-
-  .msg-selected .msg-toolbar { display: flex; }
-  .msg-selected { background: rgba(255,255,255,0.04); border-radius: var(--radius); }
-
-  .msg-toolbar button {
-    width: 34px; height: 34px; font-size: 16px;
-    background: var(--bg-tertiary); border-radius: var(--radius);
-  }
+  /* Toolbar touch overrides are in the (hover: none) query below */
 
   /* Messages area */
   .messages { padding: 12px; }
@@ -8411,34 +8442,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   .reaction-pick-btn { width: 38px; height: 38px; font-size: 20px; }
   .reaction-full-picker { width: calc(100vw - 32px); max-width: 320px; right: 0; }
 
-  /* Message toolbar — hidden until message is tapped */
-  .msg-toolbar {
-    position: static;
-    display: none;
-    margin-top: 4px;
-    box-shadow: none;
-    border: none;
-    background: none;
-    padding: 0;
-    gap: 4px;
-  }
-
-  .msg-selected .msg-toolbar {
-    display: flex;
-  }
-
-  .msg-selected {
-    background: rgba(255,255,255,0.04);
-    border-radius: var(--radius);
-  }
-
-  .msg-toolbar button {
-    width: 34px;
-    height: 34px;
-    font-size: 16px;
-    background: var(--bg-tertiary);
-    border-radius: var(--radius);
-  }
+  /* Toolbar touch overrides are in the (hover: none) query below */
 
   /* Screen share — smaller on phone */
   .screen-share-container { max-height: 35vh; min-height: 120px; }
@@ -8541,27 +8545,30 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   .server-icon { width: 44px; height: 44px; }
   .btn-voice { min-height: 36px; }
 
-  /* Disable hover-only interactions */
+  /* Disable hover-only interactions on touch */
   .message:hover, .message-compact:hover { background: transparent; }
   .message-compact:hover .compact-time { display: none !important; }
 
-  /* Message toolbar — hidden until message is tapped */
+  /* Kill the hover-triggered toolbar — belt-and-suspenders in case
+     the browser still reports (hover: hover) for the base guard. */
+  .message:hover .msg-toolbar,
+  .message-compact:hover .msg-toolbar { display: none !important; }
+
+  /* Toolbar: hidden by default, shown only via JS long-press (.msg-selected).
+     Stays position:absolute from the base rule so it floats over
+     content instead of pushing layout around. Anchored to top-right
+     of the message, same as desktop hover. */
   .msg-toolbar {
-    display: none;
-    position: static;
-    box-shadow: none;
-    border: none;
-    background: none;
-    padding: 0;
-    margin-top: 4px;
+    display: none !important;
+    z-index: 50;
   }
 
   .msg-selected .msg-toolbar {
-    display: flex;
+    display: flex !important;
   }
 
   .msg-selected {
-    background: rgba(255,255,255,0.04);
+    background: rgba(255,255,255,0.06);
     border-radius: var(--radius);
   }
 
@@ -8570,7 +8577,11 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
     border-radius: var(--radius);
     min-width: 34px;
     min-height: 34px;
+    font-size: 16px;
   }
+
+  /* Compact timestamp — always hidden on touch (no real hover exists) */
+  .message-compact .compact-time { display: none !important; }
 
   /* Smoother scrolling on touch */
   .messages, .sidebar, .right-sidebar, .modal {
@@ -11614,7 +11625,8 @@ ul.chat-list { list-style-type: disc; }
 [data-fontsize="small"] code                  { font-size: 10.5px; }
 [data-fontsize="small"] .voice-user-item .user-item-name { font-size: 11px; }
 [data-fontsize="small"] .compact-time         { font-size: 8px; }
-[data-fontsize="small"] .message-compact .message-content { font-size: 11px; }
+/* .message-compact .message-content intentionally not overridden — inherits same size
+   as full messages so all message text stays uniform across grouped and root messages. */
 
 /* Normal — 14 px base (default, no overrides needed) */
 
@@ -11645,7 +11657,7 @@ ul.chat-list { list-style-type: disc; }
 [data-fontsize="large"] .voice-user-item .user-item-name { font-size: 16px; }
 [data-fontsize="large"] .message-input-area   { min-height: 48px; }
 [data-fontsize="large"] .compact-time         { font-size: 11px; }
-[data-fontsize="large"] .message-compact .message-content { font-size: 17px; }
+
 
 /* X-Large — 22 px base (very large, high visibility) */
 [data-fontsize="x-large"] .message-content     { font-size: 22px; line-height: 1.6; }
@@ -11674,7 +11686,7 @@ ul.chat-list { list-style-type: disc; }
 [data-fontsize="x-large"] code                  { font-size: 19px; }
 [data-fontsize="x-large"] .voice-user-item .user-item-name { font-size: 19px; }
 [data-fontsize="x-large"] .compact-time         { font-size: 12.5px; }
-[data-fontsize="x-large"] .message-compact .message-content { font-size: 20px; }
+
 
 /* ── Font Size: Settings / Sub-menus ─────────────────────── */
 
@@ -12264,6 +12276,23 @@ ul.chat-list { list-style-type: disc; }
   border-radius: 4px;
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.organize-drill-hint {
+  font-size: 0.65rem;
+  opacity: 0.3;
+  flex-shrink: 0;
+  margin-left: 2px;
+  transition: opacity 0.12s;
+}
+.organize-has-subs:hover .organize-drill-hint {
+  opacity: 0.8;
+}
+.organize-has-subs {
+  cursor: default;
+}
+.organize-has-subs:hover {
+  background: rgba(255,255,255,0.06);
 }
 
 .organize-controls {

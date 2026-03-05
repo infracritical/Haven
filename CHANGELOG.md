@@ -11,6 +11,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.5.6] — 2026-03-04
+
+### Added
+- **Channel re-parenting** — admins (and users with the `create_channel` permission) can now restructure the channel tree without deleting and recreating channels. Two new right-click context menu actions:
+  - **Move to…** — opens a picker listing all top-level parent channels so a channel can be nested as a sub-channel, or moved from one parent to another. If the channel is already a sub-channel, a "Promote to top-level" shortcut appears at the top of the list.
+  - **Promote to Channel** — one-click converts any sub-channel back into a stand-alone top-level channel.
+- **Resizable/expandable modals** — all modals can now be resized by dragging the bottom-right corner, and each modal header has an ⛶ expand button that toggles it to near-fullscreen (96 vw × 92 vh).
+- **Organize drill-down** — in the server-level channel organize modal, double-clicking a parent channel that has sub-channels opens the sub-channel organizer for that parent in-place. A ← Back button returns to the top-level view.
+
+### Fixed
+- **Mobile message toolbar appears instantly on tap** — on Android (Chrome/Brave), CSS `:hover` fires on touch events, causing the emoji/pin/protect toolbar to show immediately instead of after a long-press. Hover-triggered display is now guarded by `@media (hover: hover)` so it only activates on devices with a real pointer, and a belt-and-suspenders `display: none !important` rule in the touch media query ensures the toolbar stays hidden until the long-press timer fires.
+- **Mobile message toolbar pushes content sideways** — the toolbar had `position: static` in the phone (`max-width: 480px`) media query, making it render inline and shifting message text. Restored `position: absolute` for all viewport sizes.
+- **Font size inconsistency between messages** — compact (continuation) messages were intentionally assigned a slightly smaller font-size in per-density overrides, making them visually smaller than the first message in a group. The compact-specific overrides are removed so all messages share the same font size.
+- **Compact message timestamp overlaps text on mobile** — the inline timestamp shown on continuation messages was triggering via `:hover` on touch devices, overlapping the message content. It is now hidden with `display: none !important` on touch devices.
+
+---
+
 ## [2.5.5] — 2026-03-03
 
 ### Fixed

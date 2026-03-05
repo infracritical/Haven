@@ -5507,7 +5507,7 @@ function setupSocketHandlers(io, db) {
     // ── Move channel up/down (simpler reorder for one channel) ──
     socket.on('move-channel', (data) => {
       if (!data || typeof data !== 'object') return;
-      if (!socket.user.isAdmin) return socket.emit('error-msg', 'Only admins can reorder channels');
+      if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'create_channel')) return socket.emit('error-msg', 'You don\'t have permission to reorder channels');
 
       const code = typeof data.code === 'string' ? data.code.trim() : '';
       if (!code || !/^[a-f0-9]{8}$/i.test(code)) return;
@@ -5555,12 +5555,90 @@ function setupSocketHandlers(io, db) {
     });
 
     // ═══════════════════════════════════════════════════════════
+    // CHANNEL RE-PARENTING (promote / demote / move between parents)
+    // ═══════════════════════════════════════════════════════════
+
+    socket.on('reparent-channel', (data) => {
+      if (!data || typeof data !== 'object') return;
+      if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'create_channel')) return socket.emit('error-msg', 'You don\'t have permission to move channels');
+
+      const code = typeof data.code === 'string' ? data.code.trim() : '';
+      if (!code || !/^[a-f0-9]{8}$/i.test(code)) return;
+      const newParentCode = data.newParentCode; // null = promote to top-level, string = move under parent
+
+      const channel = db.prepare('SELECT * FROM channels WHERE code = ? AND is_dm = 0').get(code);
+      if (!channel) return socket.emit('error-msg', 'Channel not found');
+
+      try {
+        if (newParentCode === null || newParentCode === undefined) {
+          // Promote to top-level
+          if (!channel.parent_channel_id) {
+            return socket.emit('error-msg', 'Channel is already top-level');
+          }
+
+          const maxPos = db.prepare(
+            'SELECT MAX(position) as mp FROM channels WHERE parent_channel_id IS NULL AND is_dm = 0'
+          ).get();
+          const position = (maxPos && maxPos.mp != null) ? maxPos.mp + 1 : 0;
+
+          db.prepare('UPDATE channels SET parent_channel_id = NULL, position = ?, category = NULL WHERE id = ?')
+            .run(position, channel.id);
+
+          broadcastChannelLists();
+          socket.emit('error-msg', `"${channel.name}" promoted to top-level channel`);
+        } else {
+          // Move under a new parent
+          const parentCode = typeof newParentCode === 'string' ? newParentCode.trim() : '';
+          if (!parentCode || !/^[a-f0-9]{8}$/i.test(parentCode)) return;
+
+          const newParent = db.prepare('SELECT * FROM channels WHERE code = ? AND is_dm = 0').get(parentCode);
+          if (!newParent) return socket.emit('error-msg', 'Target parent not found');
+
+          // Can't nest under a sub-channel (max 1 level)
+          if (newParent.parent_channel_id) {
+            return socket.emit('error-msg', 'Cannot nest channels more than one level deep');
+          }
+
+          // Can't move under itself
+          if (channel.id === newParent.id) {
+            return socket.emit('error-msg', 'Cannot move a channel under itself');
+          }
+
+          // Can't demote a parent that has sub-channels (would create nested subs)
+          const subCount = db.prepare('SELECT COUNT(*) as cnt FROM channels WHERE parent_channel_id = ?').get(channel.id);
+          if (subCount && subCount.cnt > 0) {
+            return socket.emit('error-msg', 'Cannot make a channel with sub-channels into a sub-channel. Move or remove its sub-channels first.');
+          }
+
+          // Already under this parent?
+          if (channel.parent_channel_id === newParent.id) {
+            return socket.emit('error-msg', 'Channel is already under that parent');
+          }
+
+          const maxPos = db.prepare(
+            'SELECT MAX(position) as mp FROM channels WHERE parent_channel_id = ?'
+          ).get(newParent.id);
+          const position = (maxPos && maxPos.mp != null) ? maxPos.mp + 1 : 0;
+
+          db.prepare('UPDATE channels SET parent_channel_id = ?, position = ?, category = NULL WHERE id = ?')
+            .run(newParent.id, position, channel.id);
+
+          broadcastChannelLists();
+          socket.emit('error-msg', `"${channel.name}" moved under "${newParent.name}"`);
+        }
+      } catch (err) {
+        console.error('Reparent channel error:', err);
+        socket.emit('error-msg', 'Failed to move channel');
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════
     // CHANNEL CATEGORIES
     // ═══════════════════════════════════════════════════════════
 
     socket.on('set-channel-category', (data) => {
       if (!data || typeof data !== 'object') return;
-      if (!socket.user.isAdmin) return socket.emit('error-msg', 'Only admins can set categories');
+      if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'create_channel')) return socket.emit('error-msg', 'You don\'t have permission to set categories');
 
       const code = typeof data.code === 'string' ? data.code.trim() : '';
       if (!code || !/^[a-f0-9]{8}$/i.test(code)) return;
