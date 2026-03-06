@@ -3095,6 +3095,26 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 }
 .channel-voice-indicator .voice-icon { font-size: 12px; }
 
+/* ── Voice users under channels (sidebar) ─── */
+.channel-voice-users {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 4px 40px;
+  gap: 1px;
+}
+.channel-voice-user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: default;
+}
+.channel-voice-user:hover { color: var(--text-secondary); background: var(--bg-hover); }
+.channel-voice-user .cvu-icon { font-size: 10px; color: var(--success); flex-shrink: 0; }
+
 /* ── Private channel styling (muted appearance) ─── */
 .channel-item.private-channel .channel-name { opacity: 0.6; }
 .channel-item.private-channel .channel-hash { opacity: 0.6; }
@@ -5299,8 +5319,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   border-radius: 8px;
   padding: 4px 0;
   min-width: 200px;
-  max-height: 400px;
-  overflow-y: auto;
+  overflow: visible;
   box-shadow: 0 8px 32px rgba(0,0,0,0.4);
   animation: lightbox-fade-in 0.1s ease;
 }
@@ -7527,6 +7546,11 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 }
 @keyframes shortcut-pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
 .shortcut-btns { display: flex; gap: 4px; }
+
+/* ── Desktop App preference rows ─── */
+.desktop-pref-row { margin-bottom: 12px; }
+.desktop-pref-row .toggle-row { justify-content: flex-start; gap: 10px; font-size: 13px; color: var(--text-primary); cursor: pointer; }
+.desktop-pref-row .settings-hint { margin: 2px 0 0 26px; font-size: 11px; }
 
 .password-change-form {
   display: flex;

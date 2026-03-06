@@ -887,6 +887,7 @@
           <div class="settings-nav-item" data-target="section-delete-account">⚠️ Account</div>
           <div class="settings-nav-item" data-target="section-plugins">🧩 Plugins & Themes</div>
           <div class="settings-nav-item" data-target="section-desktop-shortcuts" id="desktop-shortcuts-nav" style="display:none">⌨️ Shortcuts</div>
+          <div class="settings-nav-item" data-target="section-desktop-app" id="desktop-app-nav" style="display:none">🖥️ Desktop App</div>
           <div class="settings-nav-group settings-nav-admin" style="display:none">Admin</div>
           <div class="settings-nav-item settings-nav-admin" data-target="section-branding" style="display:none">🏠 Branding</div>
           <div class="settings-nav-item settings-nav-admin" data-target="section-members" style="display:none">👥 Members</div>
@@ -938,6 +939,41 @@
       </div>
 
       <!-- Layout Density Section -->
+
+      <!-- Desktop App Settings Section (only shown in Haven Desktop) -->
+      <div class="settings-section" id="section-desktop-app" style="display:none">
+        <h5 class="settings-section-title">🖥️ Desktop App</h5>
+        <p class="settings-desc">Settings specific to Haven Desktop.</p>
+
+        <div class="desktop-pref-row">
+          <label class="toggle-row">
+            <input type="checkbox" id="pref-start-on-login">
+            <span class="toggle-label">Start on Login</span>
+          </label>
+          <p class="settings-hint">Launch Haven Desktop automatically when you log in to your computer.</p>
+        </div>
+
+        <div class="desktop-pref-row">
+          <label class="toggle-row">
+            <input type="checkbox" id="pref-minimize-to-tray">
+            <span class="toggle-label">Minimize to Tray on Close</span>
+          </label>
+          <p class="settings-hint">Closing the window hides Haven to the system tray instead of quitting.</p>
+        </div>
+
+        <div class="desktop-pref-row">
+          <label class="toggle-row">
+            <input type="checkbox" id="pref-force-sdr">
+            <span class="toggle-label">Force SDR (sRGB) Color</span>
+          </label>
+          <p class="settings-hint">Fix washed-out or over-saturated colors on HDR monitors. Requires restart.</p>
+        </div>
+
+        <div class="desktop-pref-row" style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+          <span class="settings-hint" id="desktop-version-info" style="opacity:0.6"></span>
+        </div>
+      </div>
+
       <div class="settings-section" id="section-density">
         <h5 class="settings-section-title">📐 Layout Density</h5>
         <div class="density-picker" id="density-picker">

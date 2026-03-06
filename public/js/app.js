@@ -32,6 +32,7 @@ class HavenApp {
     this.userStatusText = '';      // custom status text
     this.idleTimer = null;         // auto-away timer
     this.voiceCounts = {};         // { channelCode: count } for sidebar voice indicators
+    this.voiceChannelUsers = {};   // { channelCode: [{id, username}] } for sidebar voice user lists
     this.e2e = null;               // HavenE2E instance for DM encryption
     this._dmPublicKeys = {};       // { userId → jwk } cache for DM partner public keys
     this._e2eListenersAttached = false;
@@ -570,8 +571,10 @@ class HavenApp {
     this.socket.on('voice-count-update', (data) => {
       if (data.count > 0) {
         this.voiceCounts[data.code] = data.count;
+        this.voiceChannelUsers[data.code] = data.users || [];
       } else {
         delete this.voiceCounts[data.code];
+        delete this.voiceChannelUsers[data.code];
       }
       this._updateChannelVoiceIndicators();
     });
@@ -2367,6 +2370,7 @@ class HavenApp {
       // Show desktop-only sections when running inside Haven Desktop
       if (window.havenDesktop?.isDesktopApp) {
         document.getElementById('desktop-shortcuts-nav')?.style.removeProperty('display');
+        document.getElementById('desktop-app-nav')?.style.removeProperty('display');
       }
       // Eagerly fetch data that requires async calls so sections don't
       // sit on "Loading..." indefinitely if the user never clicks the nav item.
@@ -2520,6 +2524,7 @@ class HavenApp {
         const item = e.target.closest('.settings-nav-item');
         if (item && item.dataset.target === 'section-2fa') loadTotpStatus();
         if (item && item.dataset.target === 'section-desktop-shortcuts') this._setupDesktopShortcuts();
+        if (item && item.dataset.target === 'section-desktop-app') this._setupDesktopAppPrefs();
       });
     }
 
@@ -5476,6 +5481,7 @@ class HavenApp {
 
   _showUserContextMenu(e, targetUserId) {
     this._hideUserContextMenu();
+    this._closeProfilePopup();
 
     const menu = document.createElement('div');
     menu.id = 'user-context-menu';
@@ -5542,6 +5548,18 @@ class HavenApp {
         });
         submenu.appendChild(chBtn);
       }
+      // Flip submenu left if it would overflow viewport right edge
+      inviteItem.addEventListener('mouseenter', () => {
+        const wrapRect = inviteItem.getBoundingClientRect();
+        const submenuWidth = Math.max(submenu.scrollWidth || 0, 180);
+        if (wrapRect.right + submenuWidth > window.innerWidth) {
+          submenu.style.left = 'auto';
+          submenu.style.right = '100%';
+        } else {
+          submenu.style.left = '100%';
+          submenu.style.right = 'auto';
+        }
+      });
       inviteItem.appendChild(submenu);
       menu.appendChild(inviteItem);
     }
@@ -7371,6 +7389,11 @@ class HavenApp {
       }
 
       el.addEventListener('click', () => this.switchChannel(ch.code));
+      // Double-click to join voice in the channel
+      el.addEventListener('dblclick', () => {
+        this.switchChannel(ch.code);
+        setTimeout(() => this._joinVoice(), 300);
+      });
       // Right-click to open context menu
       el.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -7756,6 +7779,8 @@ class HavenApp {
       const code = el.dataset.code;
       let indicator = el.querySelector('.channel-voice-indicator');
       const count = this.voiceCounts[code] || 0;
+      const users = this.voiceChannelUsers[code] || [];
+
       if (count > 0) {
         if (!indicator) {
           indicator = document.createElement('span');
@@ -7766,8 +7791,24 @@ class HavenApp {
           else el.appendChild(indicator);
         }
         indicator.innerHTML = `<span class="voice-icon">🔊</span>${count}`;
-      } else if (indicator) {
-        indicator.remove();
+
+        // Render voice user list below the channel item
+        let userList = el.nextElementSibling;
+        if (!userList || !userList.classList.contains('channel-voice-users')) {
+          userList = document.createElement('div');
+          userList.className = 'channel-voice-users';
+          el.after(userList);
+        }
+        userList.innerHTML = users.map(u =>
+          `<div class="channel-voice-user" data-user-id="${u.id}"><span class="cvu-icon">🎤</span>${this._escapeHtml(u.username)}</div>`
+        ).join('');
+      } else {
+        if (indicator) indicator.remove();
+        // Remove voice user list
+        const userList = el.nextElementSibling;
+        if (userList && userList.classList.contains('channel-voice-users')) {
+          userList.remove();
+        }
       }
     });
   }
@@ -7974,7 +8015,7 @@ class HavenApp {
 
   _createMessageEl(msg, prevMsg) {
     const isImage = this._isImageUrl(msg.content);
-    const isCompact = !isImage && prevMsg &&
+    const isCompact = prevMsg &&
       prevMsg.user_id === msg.user_id &&
       !msg.reply_to &&
       (new Date(msg.created_at) - new Date(prevMsg.created_at)) < 5 * 60 * 1000;
@@ -11511,8 +11552,8 @@ class HavenApp {
       }
     );
 
-    // Render @mentions with highlight
-    html = html.replace(/@(\w{1,30})/g, (match, username) => {
+    // Render @mentions with highlight (negative lookbehind prevents matching inside email addresses)
+    html = html.replace(/(?<!\w)@(\w{1,30})/g, (match, username) => {
       const isSelf = username.toLowerCase() === this.user.username.toLowerCase();
       return `<span class="mention${isSelf ? ' mention-self' : ''}">${match}</span>`;
     });
@@ -16357,6 +16398,53 @@ class HavenApp {
           keyEl.textContent = '—';
         } catch (err) {}
       });
+    });
+  }
+
+  /* ── Desktop App Preferences (start on login, tray, SDR) ── */
+
+  async _setupDesktopAppPrefs() {
+    if (!window.havenDesktop?.prefs) return;
+    if (this._desktopPrefsReady) return;
+    this._desktopPrefsReady = true;
+
+    let prefs = {};
+    try { prefs = await window.havenDesktop.prefs.get(); } catch {}
+
+    const startEl   = document.getElementById('pref-start-on-login');
+    const trayEl    = document.getElementById('pref-minimize-to-tray');
+    const sdrEl     = document.getElementById('pref-force-sdr');
+    const versionEl = document.getElementById('desktop-version-info');
+
+    if (startEl) { startEl.checked = !!prefs.startOnLogin; }
+    if (trayEl)  { trayEl.checked  = !!prefs.minimizeToTray; }
+    if (sdrEl)   { sdrEl.checked   = !!prefs.forceSDR; }
+
+    // Show desktop version
+    if (versionEl && window.havenDesktop.getVersion) {
+      try {
+        const v = await window.havenDesktop.getVersion();
+        versionEl.textContent = `Haven Desktop v${v}`;
+      } catch {}
+    }
+
+    startEl?.addEventListener('change', async () => {
+      try { await window.havenDesktop.prefs.setStartOnLogin(startEl.checked); }
+      catch { startEl.checked = !startEl.checked; }
+    });
+
+    trayEl?.addEventListener('change', async () => {
+      try { await window.havenDesktop.prefs.setMinimizeToTray(trayEl.checked); }
+      catch { trayEl.checked = !trayEl.checked; }
+    });
+
+    sdrEl?.addEventListener('change', async () => {
+      try {
+        const res = await window.havenDesktop.prefs.setForceSDR(sdrEl.checked);
+        if (res?.requiresRestart) {
+          this._showToast('Color profile updated. Restart Haven Desktop to apply.', 'info');
+        }
+      } catch { sdrEl.checked = !sdrEl.checked; }
     });
   }
 

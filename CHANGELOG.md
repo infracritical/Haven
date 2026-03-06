@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.5.7] — 2026-03-05
+
+### Fixed
+- **Right-click → Invite to Channel submenu now opens correctly** — the parent context menu had `overflow-y: auto` set, which trapped the absolutely-positioned submenu inside the scroll container instead of letting it fly out to the side. Removed that overflow constraint and replaced the static post-render flip logic with a live `mouseenter` handler that measures the trigger's position at hover time and opens the submenu left or right accordingly.
+- **Email addresses no longer render as @mentions** — the `@mention` highlight regex matched any `@word` pattern, including the domain part of email addresses (e.g. `user@example.com` would tag `@example`). Added a negative lookbehind `(?<!\w)` so only mentions that appear after whitespace or punctuation are styled.
+
+---
+
 ## [2.5.6] — 2026-03-04
 
 ### Added
