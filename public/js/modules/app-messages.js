@@ -123,10 +123,13 @@ _renderMessages(messages) {
   // Only render the last MAX_DOM_MESSAGES to prevent OOM on large histories
   const MAX_DOM_MESSAGES = 200;
   const start = messages.length > MAX_DOM_MESSAGES ? messages.length - MAX_DOM_MESSAGES : 0;
+  // Use DocumentFragment to batch all DOM inserts into a single reflow
+  const frag = document.createDocumentFragment();
   for (let i = start; i < messages.length; i++) {
     const prevMsg = i > start ? messages[i - 1] : null;
-    container.appendChild(this._createMessageEl(messages[i], prevMsg));
+    frag.appendChild(this._createMessageEl(messages[i], prevMsg));
   }
+  container.appendChild(frag);
   this._scrollToBottom(true);
   // Re-scroll after images load — force-scroll since user should be at
   // bottom on initial channel load
