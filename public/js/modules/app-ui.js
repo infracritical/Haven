@@ -1216,6 +1216,38 @@ _setupUI() {
     }
   });
 
+  // ── Poll vote click (delegated from messages container) ──
+  document.getElementById('messages').addEventListener('click', (e) => {
+    const optBtn = e.target.closest('.poll-option');
+    if (!optBtn) return;
+    const msgId = parseInt(optBtn.dataset.msgId);
+    const optionIndex = parseInt(optBtn.dataset.option);
+    if (!msgId || isNaN(optionIndex)) return;
+    const hasVote = optBtn.classList.contains('poll-voted');
+    if (hasVote) {
+      this.socket.emit('unvote-poll', { messageId: msgId, optionIndex });
+    } else {
+      this.socket.emit('vote-poll', { messageId: msgId, optionIndex });
+    }
+  });
+
+  // ── Poll creation modal ──
+  document.getElementById('poll-btn').addEventListener('click', () => {
+    this._openPollModal();
+  });
+  document.getElementById('poll-cancel-btn').addEventListener('click', () => {
+    document.getElementById('poll-modal').style.display = 'none';
+  });
+  document.getElementById('poll-create-btn').addEventListener('click', () => {
+    this._submitPoll();
+  });
+  document.getElementById('poll-add-option-btn').addEventListener('click', () => {
+    this._addPollOption();
+  });
+  document.getElementById('poll-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'poll-modal') e.target.style.display = 'none';
+  });
+
   // Rename username
   document.getElementById('rename-btn').addEventListener('click', () => {
     document.getElementById('rename-modal').style.display = 'flex';
@@ -1427,6 +1459,8 @@ _setupUI() {
     if (window.havenDesktop?.isDesktopApp) {
       document.getElementById('desktop-shortcuts-nav')?.style.removeProperty('display');
       document.getElementById('desktop-app-nav')?.style.removeProperty('display');
+      document.getElementById('section-desktop-shortcuts')?.style.removeProperty('display');
+      document.getElementById('section-desktop-app')?.style.removeProperty('display');
     }
     // Eagerly fetch data that requires async calls so sections don't
     // sit on "Loading..." indefinitely if the user never clicks the nav item.
@@ -2654,6 +2688,73 @@ _setupCollapsibleSections() {
       localStorage.setItem(key, isCollapsed ? '1' : '0');
     });
   });
+},
+
+/* ── Polls ───────────────────────────────────────────── */
+
+_openPollModal() {
+  const modal = document.getElementById('poll-modal');
+  document.getElementById('poll-question-input').value = '';
+  document.getElementById('poll-multi-vote').checked = false;
+  document.getElementById('poll-anonymous').checked = false;
+  const list = document.getElementById('poll-options-list');
+  list.innerHTML = '';
+  for (let i = 0; i < 2; i++) {
+    this._addPollOptionRow(list, i);
+  }
+  modal.style.display = 'flex';
+  document.getElementById('poll-question-input').focus();
+},
+
+_addPollOptionRow(list, index) {
+  if (!list) list = document.getElementById('poll-options-list');
+  const row = document.createElement('div');
+  row.className = 'poll-option-row';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'poll-option-input';
+  input.placeholder = `Option ${index + 1}`;
+  input.maxLength = 100;
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'poll-option-remove';
+  removeBtn.textContent = '\u00d7';
+  removeBtn.title = 'Remove';
+  removeBtn.style.display = list.children.length >= 2 ? '' : 'none';
+  removeBtn.addEventListener('click', () => {
+    row.remove();
+    this._updatePollRemoveButtons();
+  });
+  row.appendChild(input);
+  row.appendChild(removeBtn);
+  list.appendChild(row);
+  this._updatePollRemoveButtons();
+},
+
+_addPollOption() {
+  const list = document.getElementById('poll-options-list');
+  if (list.children.length >= 10) return;
+  this._addPollOptionRow(list, list.children.length);
+  const inputs = list.querySelectorAll('.poll-option-input');
+  inputs[inputs.length - 1].focus();
+},
+
+_updatePollRemoveButtons() {
+  const list = document.getElementById('poll-options-list');
+  const btns = list.querySelectorAll('.poll-option-remove');
+  btns.forEach(b => { b.style.display = list.children.length > 2 ? '' : 'none'; });
+},
+
+_submitPoll() {
+  const question = document.getElementById('poll-question-input').value.trim();
+  if (!question) return;
+  const inputs = document.querySelectorAll('#poll-options-list .poll-option-input');
+  const options = Array.from(inputs).map(i => i.value.trim()).filter(Boolean);
+  if (options.length < 2) return;
+  const multiVote = document.getElementById('poll-multi-vote').checked;
+  const anonymous = document.getElementById('poll-anonymous').checked;
+
+  this.socket.emit('create-poll', { question, options, multiVote, anonymous });
+  document.getElementById('poll-modal').style.display = 'none';
 },
 
 /* ── iOS PWA Keyboard Layout Fix ────────────────────── */

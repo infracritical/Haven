@@ -11,6 +11,7 @@ async switchChannel(code) {
   // Voice persists across channel switches — no auto-disconnect
 
   this.currentChannel = code;
+  this._coupledToBottom = true;
   const channel = this.channels.find(c => c.code === code);
   const isDm = channel && channel.is_dm;
   const displayName = isDm && channel.dm_target
@@ -79,6 +80,10 @@ async switchChannel(code) {
   this._noMoreHistory = false;
   this._loadingHistory = false;
   this._historyBefore = null;
+  this._newestMsgId = null;
+  this._noMoreFuture = true;
+  this._loadingFuture = false;
+  this._historyAfter = null;
 
   this.socket.emit('enter-channel', { code });
   // E2E: fetch DM partner's public key BEFORE requesting messages
@@ -1106,6 +1111,11 @@ _renderChannels() {
         document.querySelectorAll(`.sub-channel-item[data-parent-id="${ch.id}"], .sub-tag-label[data-parent-id="${ch.id}"]`).forEach(sub => {
           sub.style.display = collapsed ? 'none' : '';
         });
+        // Remove the parent bubble when expanding — individual sub-channel badges are now visible
+        if (!collapsed) {
+          const bubble = el.querySelector('.channel-badge-bubble');
+          if (bubble) bubble.remove();
+        }
       });
     }
 
@@ -1422,6 +1432,41 @@ _updateBadge(code) {
     badge.textContent = count > 99 ? '99+' : count;
   } else if (badge) {
     badge.remove();
+  }
+
+  // If this is a sub-channel whose parent is currently collapsed, bubble an unread
+  // indicator up to the parent so the user knows to expand it.
+  if (el.dataset.parentId) {
+    const parentChannel = this.channels.find(c => c.id === parseInt(el.dataset.parentId));
+    if (parentChannel) {
+      const parentEl = document.querySelector(`.channel-item[data-code="${parentChannel.code}"]`);
+      if (parentEl) {
+        // Check if sub-channels are collapsed (arrow has 'collapsed' class)
+        const arrow = parentEl.querySelector('.channel-collapse-arrow');
+        if (arrow && arrow.classList.contains('collapsed')) {
+          // Count total unreads across all sub-channels of this parent
+          const siblingCodes = this.channels
+            .filter(c => c.parent_channel_id === parentChannel.id)
+            .map(c => c.code);
+          const siblingTotal = siblingCodes.reduce((sum, sc) => sum + (this.unreadCounts[sc] || 0), 0);
+          let parentBubble = parentEl.querySelector('.channel-badge-bubble');
+          if (siblingTotal > 0) {
+            if (!parentBubble) {
+              parentBubble = document.createElement('span');
+              parentBubble.className = 'channel-badge channel-badge-bubble';
+              parentEl.appendChild(parentBubble);
+            }
+            parentBubble.textContent = siblingTotal > 99 ? '99+' : siblingTotal;
+          } else if (parentBubble) {
+            parentBubble.remove();
+          }
+        } else {
+          // Sub-channels are expanded — remove any bubble from parent
+          const parentBubble = parentEl.querySelector('.channel-badge-bubble');
+          if (parentBubble) parentBubble.remove();
+        }
+      }
+    }
   }
 
   // Update the DM section header total badge

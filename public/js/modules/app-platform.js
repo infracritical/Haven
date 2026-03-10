@@ -503,6 +503,10 @@ async _e2eSetupListeners() {
           this._noMoreHistory = false;
           this._loadingHistory = false;
           this._historyBefore = null;
+          this._newestMsgId = null;
+          this._noMoreFuture = true;
+          this._loadingFuture = false;
+          this._historyAfter = null;
           this.socket.emit('get-messages', { code: this.currentChannel });
         }
         return;
@@ -534,6 +538,10 @@ async _syncE2EFromServer() {
       this._noMoreHistory = false;
       this._loadingHistory = false;
       this._historyBefore = null;
+      this._newestMsgId = null;
+      this._noMoreFuture = true;
+      this._loadingFuture = false;
+      this._historyAfter = null;
       this.socket.emit('get-messages', { code: this.currentChannel });
     }
   } else {
@@ -710,6 +718,10 @@ _retryDecryptForUser(userId) {
   this._noMoreHistory = false;
   this._loadingHistory = false;
   this._historyBefore = null;
+  this._newestMsgId = null;
+  this._noMoreFuture = true;
+  this._loadingFuture = false;
+  this._historyAfter = null;
   this.socket.emit('get-messages', { code: this.currentChannel });
 },
 
@@ -884,12 +896,12 @@ async _performE2EKeyReset() {
  */
 _appendE2ENotice(text) {
   const container = document.getElementById('messages');
-  const wasAtBottom = this._isScrolledToBottom();
+  const wasAtBottom = this._coupledToBottom;
   const el = document.createElement('div');
   el.className = 'system-message e2e-notice';
   el.textContent = text;
   container.appendChild(el);
-  if (wasAtBottom) this._scrollToBottom();
+  if (wasAtBottom) this._scrollToBottom(true);
 },
 
 /**

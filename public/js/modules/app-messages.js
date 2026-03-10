@@ -130,6 +130,15 @@ _renderMessages(messages) {
     frag.appendChild(this._createMessageEl(messages[i], prevMsg));
   }
   container.appendChild(frag);
+  // Force the bottom-most messages to render at real height so the initial
+  // scroll-to-bottom calculation is accurate.  content-visibility:auto
+  // would estimate off-screen elements at 64px, skewing scrollHeight.
+  const children = container.children;
+  for (let i = Math.max(0, children.length - 15); i < children.length; i++) {
+    if (children[i].classList.contains('message')) {
+      children[i].style.contentVisibility = 'visible';
+    }
+  }
   this._scrollToBottom(true);
   // Re-scroll after images load — force-scroll since user should be at
   // bottom on initial channel load
@@ -187,10 +196,64 @@ _prependMessages(messages) {
     for (let i = 0; i < excess; i++) {
       container.removeChild(container.lastElementChild);
     }
+    // Newer messages were trimmed — forward pagination is now needed
+    this._noMoreFuture = false;
+    // Update _newestMsgId to match what's still in the DOM
+    const lastChild = container.lastElementChild;
+    if (lastChild && lastChild.dataset && lastChild.dataset.msgId) {
+      this._newestMsgId = parseInt(lastChild.dataset.msgId);
+    }
   }
 
   // Fetch link previews for prepended messages
   this._fetchLinkPreviews(container);
+},
+
+/** Append newer messages to the bottom (forward pagination), trimming old ones from top */
+_appendMessages(messages) {
+  const container = document.getElementById('messages');
+  const wasAtBottom = this._coupledToBottom;
+
+  const fragment = document.createDocumentFragment();
+  messages.forEach((msg, i) => {
+    let prevMsg = null;
+    if (i > 0) {
+      prevMsg = messages[i - 1];
+    } else {
+      // Link to existing last message for grouping
+      const lastEl = container.lastElementChild;
+      if (lastEl && lastEl.dataset && lastEl.dataset.userId && lastEl.dataset.msgId) {
+        prevMsg = { user_id: parseInt(lastEl.dataset.userId), created_at: lastEl.dataset.time };
+      }
+    }
+    fragment.appendChild(this._createMessageEl(msg, prevMsg));
+  });
+  container.appendChild(fragment);
+
+  // Trim oldest messages from the top
+  const MAX_DOM_MESSAGES = 100;
+  const trimmed = container.children.length > MAX_DOM_MESSAGES;
+  while (container.children.length > MAX_DOM_MESSAGES) {
+    container.removeChild(container.firstElementChild);
+  }
+
+  // Update _oldestMsgId to match what's still in the DOM
+  const firstChild = container.firstElementChild;
+  if (firstChild && firstChild.dataset && firstChild.dataset.msgId) {
+    this._oldestMsgId = parseInt(firstChild.dataset.msgId);
+  }
+  // Older messages were trimmed — re-enable backward pagination so the
+  // user can scroll up again to reload them.
+  if (trimmed) this._noMoreHistory = false;
+
+  this._fetchLinkPreviews(container);
+
+  // Mark as read so the server-side read position advances
+  if (messages.length > 0) {
+    this._markRead(messages[messages.length - 1].id);
+  }
+
+  if (wasAtBottom) this._scrollToBottom(true);
 },
 
 _appendMessage(message, forceScroll = false) {
@@ -206,16 +269,32 @@ _appendMessage(message, forceScroll = false) {
     };
   }
 
-  const wasAtBottom = forceScroll || this._isScrolledToBottom();
+  const wasAtBottom = forceScroll || this._coupledToBottom;
   const msgEl = this._createMessageEl(message, prevMsg);
+  // Root messages have content-visibility:auto with a 64px intrinsic
+  // fallback.  When appended at the bottom they start off-screen, so the
+  // browser uses the estimate instead of the real height — causing
+  // _scrollToBottom to fall short.  Force visible so the real height is
+  // used immediately; the element is in the viewport anyway.
+  if (msgEl.classList.contains('message')) {
+    msgEl.style.contentVisibility = 'visible';
+  }
   container.appendChild(msgEl);
 
   // ── DOM trimming: remove oldest messages when the list grows too large ──
   // This prevents unbounded memory growth that causes OOM crashes.
   const MAX_DOM_MESSAGES = 100;
+  const trimmed = container.children.length > MAX_DOM_MESSAGES;
   while (container.children.length > MAX_DOM_MESSAGES) {
     container.removeChild(container.firstElementChild);
   }
+  // Keep _oldestMsgId in sync with the DOM after trimming
+  const firstEl = container.firstElementChild;
+  if (firstEl && firstEl.dataset && firstEl.dataset.msgId) {
+    this._oldestMsgId = parseInt(firstEl.dataset.msgId);
+  }
+  // Re-enable backward pagination since we trimmed old messages
+  if (trimmed) this._noMoreHistory = false;
 
   // Fetch link previews for this message
   this._fetchLinkPreviews(msgEl);
@@ -253,6 +332,7 @@ _createMessageEl(msg, prevMsg) {
     (new Date(msg.created_at) - new Date(prevMsg.created_at)) < 5 * 60 * 1000;
 
   const reactionsHtml = this._renderReactions(msg.id, msg.reactions || []);
+  const pollHtml = msg.poll ? this._renderPollWidget(msg.id, msg.poll) : '';
   const editedHtml = msg.edited_at ? `<span class="edited-tag" title="Edited at ${new Date(msg.edited_at).toLocaleString()}">(edited)</span>` : '';
   const pinnedTag = msg.pinned ? '<span class="pinned-tag" title="Pinned message">📌</span>' : '';
   const archivedTag = msg.is_archived ? '<span class="archived-tag" title="Protected from cleanup">🛡️</span>' : '';
@@ -294,10 +374,12 @@ _createMessageEl(msg, prevMsg) {
     if (msg.pinned) el.dataset.pinned = '1';
     if (msg.is_archived) el.dataset.archived = '1';
     if (msg._e2e) el.dataset.e2e = '1';
+    if (msg.poll && msg.poll.anonymous) el.dataset.pollAnonymous = '1';
     el.innerHTML = `
       <span class="compact-time">${new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
       <div class="message-body">
         <div class="message-content">${pinnedTag}${archivedTag}${this._formatContent(msg.content)}${editedHtml}</div>
+        ${pollHtml}
         ${reactionsHtml}
       </div>
       ${e2eTag}
@@ -349,6 +431,7 @@ _createMessageEl(msg, prevMsg) {
   if (msg.pinned) el.dataset.pinned = '1';
   if (msg.is_archived) el.dataset.archived = '1';
   if (msg._e2e) el.dataset.e2e = '1';
+  if (msg.poll && msg.poll.anonymous) el.dataset.pollAnonymous = '1';
   el.innerHTML = `
     ${replyHtml}
     <div class="message-row">
@@ -365,6 +448,7 @@ _createMessageEl(msg, prevMsg) {
           ${e2eTag}
         </div>
         <div class="message-content">${this._formatContent(msg.content)}${editedHtml}</div>
+        ${pollHtml}
         ${reactionsHtml}
       </div>
       ${toolbarHtml}
@@ -438,12 +522,12 @@ _promoteCompactToFull(compactEl) {
 
 _appendSystemMessage(text) {
   const container = document.getElementById('messages');
-  const wasAtBottom = this._isScrolledToBottom();
+  const wasAtBottom = this._coupledToBottom;
   const el = document.createElement('div');
   el.className = 'system-message';
   el.textContent = text;
   container.appendChild(el);
-  if (wasAtBottom) this._scrollToBottom();
+  if (wasAtBottom) this._scrollToBottom(true);
 },
 
 // ── Pinned Messages Panel ─────────────────────────────
@@ -511,7 +595,7 @@ _fetchLinkPreviews(containerEl) {
       wrapper.dataset.url = url;
       wrapper.innerHTML = `<iframe src="https://www.youtube.com/embed/${this._escapeHtml(ytVideoId)}?rel=0" width="100%" height="270" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>`;
       msgContent.appendChild(wrapper);
-      if (this._isScrolledToBottom()) this._scrollToBottom();
+      if (this._coupledToBottom) this._scrollToBottom(true);
       return; // skip generic link preview for YouTube
     }
 
@@ -553,10 +637,12 @@ _fetchLinkPreviews(containerEl) {
         inner += '</div>';
         card.innerHTML = inner;
 
+        const wasAtBottom = this._coupledToBottom;
         msgContent.appendChild(card);
 
-        // Scroll if at bottom
-        if (this._isScrolledToBottom()) this._scrollToBottom();
+        // Scroll if coupled to bottom — uses the tracked flag rather than
+        // a point-in-time scrollHeight check that content-visibility can skew.
+        if (wasAtBottom) this._scrollToBottom(true);
       })
       .catch(() => {});
   });

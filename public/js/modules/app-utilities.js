@@ -83,7 +83,7 @@ _formatContent(str) {
       'sh','app','dmg','pkg','deb','rpm','appimage',
     ]);
     // Audio/video get inline players
-    if (['mp3', 'ogg', 'wav', 'webm'].includes(ext) && /^audio\//.test('audio/')) {
+    if (['mp3', 'ogg', 'wav'].includes(ext)) {
       return `<div class="file-attachment">
         <div class="file-info">${icon} <span class="file-name">${fileName}</span> <span class="file-size">(${fileSize})</span></div>
         <audio controls preload="none" src="${fileUrl}"></audio>
@@ -273,11 +273,25 @@ _isScrolledToBottom() {
 
 _scrollToBottom(force) {
   const el = document.getElementById('messages');
-  if (force || this._isScrolledToBottom()) {
-    // Use Number.MAX_SAFE_INTEGER — the browser clamps to actual max scrollTop.
-    // This is necessary: el.scrollHeight can be under-reported when many
-    // messages exist and layout hasn't fully settled (e.g. after DOM trimming).
-    requestAnimationFrame(() => { el.scrollTop = Number.MAX_SAFE_INTEGER; });
+  if (force || this._coupledToBottom) {
+    el.scrollTop = el.scrollHeight;
+    // content-visibility:auto estimates off-screen element heights at the
+    // intrinsic fallback (64px).  As elements enter/exit the viewport across
+    // successive frames the real heights replace estimates, shifting
+    // scrollHeight.  Fire several correction frames so the position settles
+    // at the true bottom.
+    let prev = -1;
+    let frames = 0;
+    const tick = () => {
+      el.scrollTop = Number.MAX_SAFE_INTEGER;
+      if (el.scrollHeight !== prev && frames < 8) {
+        prev = el.scrollHeight;
+        frames++;
+        requestAnimationFrame(tick);
+      }
+    };
+    requestAnimationFrame(tick);
+    this._coupledToBottom = true;
   }
 },
 
@@ -713,6 +727,77 @@ _showGifSlashResults(query) {
 },
 
 // ═══════════════════════════════════════════════════════
+// POLLS
+// ═══════════════════════════════════════════════════════
+
+_renderPollWidget(msgId, poll) {
+  if (!poll || !poll.question || !Array.isArray(poll.options)) return '';
+  const votes = poll.votes || {};
+  const totalVotes = poll.totalVotes || 0;
+  const myId = this.user.id;
+
+  const optionsHtml = poll.options.map((opt, i) => {
+    const voters = votes[i] || [];
+    const count = voters.length;
+    const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+    const myVote = voters.some(v => v.user_id === myId);
+    const voterNames = poll.anonymous ? '' : voters.map(v => this._escapeHtml(v.username)).join(', ');
+    return `<button class="poll-option${myVote ? ' poll-voted' : ''}" data-msg-id="${msgId}" data-option="${i}" title="${voterNames}">
+      <div class="poll-option-bar" style="width:${pct}%"></div>
+      <span class="poll-option-text">${this._escapeHtml(opt)}</span>
+      <span class="poll-option-count">${count} (${pct}%)</span>
+    </button>`;
+  }).join('');
+
+  const settings = [];
+  if (poll.multiVote) settings.push('Multiple votes');
+  if (poll.anonymous) settings.push('Anonymous');
+  const settingsHtml = settings.length ? `<div class="poll-settings-info">${settings.join(' · ')}</div>` : '';
+
+  return `<div class="poll-widget" data-msg-id="${msgId}">
+    <div class="poll-question">${this._escapeHtml(poll.question)}</div>
+    <div class="poll-options">${optionsHtml}</div>
+    <div class="poll-footer">${totalVotes} vote${totalVotes !== 1 ? 's' : ''}${settingsHtml ? ' · ' : ''}${settingsHtml}</div>
+  </div>`;
+},
+
+_updatePollVotes(messageId, votes, totalVotes) {
+  const widget = document.querySelector(`.poll-widget[data-msg-id="${messageId}"]`);
+  if (!widget) return;
+
+  const wasAtBottom = this._coupledToBottom;
+  const myId = this.user.id;
+
+  // Get current poll data from the message to know anonymous/multiVote settings
+  const msgEl = document.querySelector(`[data-msg-id="${messageId}"]`);
+  const pollAnonymous = msgEl && msgEl.dataset.pollAnonymous === '1';
+
+  widget.querySelectorAll('.poll-option').forEach(btn => {
+    const idx = parseInt(btn.dataset.option);
+    const voters = votes[idx] || [];
+    const count = voters.length;
+    const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+    const myVote = voters.some(v => v.user_id === myId);
+
+    btn.classList.toggle('poll-voted', myVote);
+    btn.title = pollAnonymous ? '' : voters.map(v => this._escapeHtml(v.username)).join(', ');
+    const bar = btn.querySelector('.poll-option-bar');
+    if (bar) bar.style.width = pct + '%';
+    const countEl = btn.querySelector('.poll-option-count');
+    if (countEl) countEl.textContent = `${count} (${pct}%)`;
+  });
+
+  const footer = widget.querySelector('.poll-footer');
+  if (footer) {
+    const settingsInfo = footer.querySelector('.poll-settings-info');
+    const settingsHtml = settingsInfo ? ' · ' + settingsInfo.outerHTML : '';
+    footer.innerHTML = `${totalVotes} vote${totalVotes !== 1 ? 's' : ''}${settingsHtml}`;
+  }
+
+  if (wasAtBottom) this._scrollToBottom(true);
+},
+
+// ═══════════════════════════════════════════════════════
 // REACTIONS
 // ═══════════════════════════════════════════════════════
 
@@ -745,7 +830,7 @@ _updateMessageReactions(messageId, reactions) {
   const msgEl = document.querySelector(`[data-msg-id="${messageId}"]`);
   if (!msgEl) return;
 
-  const wasAtBottom = this._isScrolledToBottom();
+  const wasAtBottom = this._coupledToBottom;
 
   // Remove old reactions row
   const oldRow = msgEl.querySelector('.reactions-row');
@@ -753,7 +838,7 @@ _updateMessageReactions(messageId, reactions) {
 
   // Add new reactions
   const html = this._renderReactions(messageId, reactions);
-  if (!html) { if (wasAtBottom) this._scrollToBottom(); return; }
+  if (!html) { if (wasAtBottom) this._scrollToBottom(true); return; }
 
   // Find where to insert — after .message-content
   const content = msgEl.querySelector('.message-content');
@@ -761,7 +846,7 @@ _updateMessageReactions(messageId, reactions) {
     content.insertAdjacentHTML('afterend', html);
   }
 
-  if (wasAtBottom) this._scrollToBottom();
+  if (wasAtBottom) this._scrollToBottom(true);
 },
 
 _getQuickEmojis() {
@@ -901,7 +986,26 @@ _showQuickEmojiEditor(picker, msgEl, msgId) {
 },
 
 _showReactionPicker(msgEl, msgId) {
-  // Remove any existing reaction picker and clear previous showing-picker class
+  // Toggle: if this message already has a picker open, close it and bail
+  const existingPicker = msgEl.querySelector('.reaction-picker');
+  if (existingPicker) {
+    existingPicker.remove();
+    msgEl.classList.remove('showing-picker');
+    document.querySelectorAll('.reaction-full-picker').forEach(el => el.remove());
+    document.querySelectorAll('.quick-emoji-editor').forEach(el => el.remove());
+    if (this._reactionPickerClose) {
+      document.removeEventListener('click', this._reactionPickerClose);
+      this._reactionPickerClose = null;
+    }
+    return;
+  }
+
+  // Clean up previous close-on-click-outside handler so it can't
+  // interfere with the new picker (e.g. removing showing-picker class).
+  if (this._reactionPickerClose) {
+    document.removeEventListener('click', this._reactionPickerClose);
+    this._reactionPickerClose = null;
+  }
   document.querySelectorAll('.showing-picker').forEach(el => el.classList.remove('showing-picker'));
   document.querySelectorAll('.reaction-picker').forEach(el => el.remove());
   document.querySelectorAll('.reaction-full-picker').forEach(el => el.remove());
@@ -929,6 +1033,10 @@ _showReactionPicker(msgEl, msgId) {
       this.socket.emit('add-reaction', { messageId: msgId, emoji });
       picker.remove();
       msgEl.classList.remove('showing-picker');
+      if (this._reactionPickerClose) {
+        document.removeEventListener('click', this._reactionPickerClose);
+        this._reactionPickerClose = null;
+      }
     });
     picker.appendChild(btn);
   });
@@ -986,8 +1094,10 @@ _showReactionPicker(msgEl, msgId) {
       msgEl.classList.remove('showing-picker');
       document.querySelectorAll('.reaction-full-picker').forEach(el => el.remove());
       document.removeEventListener('click', close);
+      this._reactionPickerClose = null;
     }
   };
+  this._reactionPickerClose = close;
   setTimeout(() => document.addEventListener('click', close), 0);
 },
 
@@ -1041,6 +1151,10 @@ _showFullReactionPicker(msgEl, msgId, quickPicker) {
           panel.remove();
           quickPicker.remove();
           msgEl.classList.remove('showing-picker');
+          if (this._reactionPickerClose) {
+            document.removeEventListener('click', this._reactionPickerClose);
+            this._reactionPickerClose = null;
+          }
         });
         row.appendChild(btn);
       });
@@ -1069,6 +1183,10 @@ _showFullReactionPicker(msgEl, msgId, quickPicker) {
             panel.remove();
             quickPicker.remove();
             msgEl.classList.remove('showing-picker');
+            if (this._reactionPickerClose) {
+              document.removeEventListener('click', this._reactionPickerClose);
+              this._reactionPickerClose = null;
+            }
           });
           row.appendChild(btn);
         });

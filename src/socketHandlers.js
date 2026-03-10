@@ -1176,6 +1176,7 @@ function setupSocketHandlers(io, db) {
       const code = typeof data.code === 'string' ? data.code.trim() : '';
       if (!code || !/^[a-f0-9]{8}$/i.test(code)) return;
       const before = isInt(data.before) ? data.before : null;
+      const after  = isInt(data.after)  ? data.after  : null;
       const limit = isInt(data.limit) && data.limit > 0 && data.limit <= 100 ? data.limit : 80;
 
       const channel = db.prepare('SELECT id FROM channels WHERE code = ?').get(code);
@@ -1189,15 +1190,23 @@ function setupSocketHandlers(io, db) {
       let messages;
       if (before) {
         messages = db.prepare(`
-          SELECT m.id, m.content, m.created_at, m.reply_to, m.edited_at, m.is_webhook, m.webhook_username, m.webhook_avatar, m.imported_from, m.is_archived,
+          SELECT m.id, m.content, m.created_at, m.reply_to, m.edited_at, m.is_webhook, m.webhook_username, m.webhook_avatar, m.imported_from, m.is_archived, m.poll_data,
                  COALESCE(m.webhook_username, u.display_name, u.username, '[Deleted User]') as username, u.id as user_id, u.avatar, COALESCE(u.avatar_shape, 'circle') as avatar_shape
           FROM messages m LEFT JOIN users u ON m.user_id = u.id
           WHERE m.channel_id = ? AND m.id < ?
           ORDER BY m.created_at DESC LIMIT ?
         `).all(channel.id, before, limit);
+      } else if (after) {
+        messages = db.prepare(`
+          SELECT m.id, m.content, m.created_at, m.reply_to, m.edited_at, m.is_webhook, m.webhook_username, m.webhook_avatar, m.imported_from, m.is_archived, m.poll_data,
+                 COALESCE(m.webhook_username, u.display_name, u.username, '[Deleted User]') as username, u.id as user_id, u.avatar, COALESCE(u.avatar_shape, 'circle') as avatar_shape
+          FROM messages m LEFT JOIN users u ON m.user_id = u.id
+          WHERE m.channel_id = ? AND m.id > ?
+          ORDER BY m.created_at ASC LIMIT ?
+        `).all(channel.id, after, limit);
       } else {
         messages = db.prepare(`
-          SELECT m.id, m.content, m.created_at, m.reply_to, m.edited_at, m.is_webhook, m.webhook_username, m.webhook_avatar, m.imported_from, m.is_archived,
+          SELECT m.id, m.content, m.created_at, m.reply_to, m.edited_at, m.is_webhook, m.webhook_username, m.webhook_avatar, m.imported_from, m.is_archived, m.poll_data,
                  COALESCE(m.webhook_username, u.display_name, u.username, '[Deleted User]') as username, u.id as user_id, u.avatar, COALESCE(u.avatar_shape, 'circle') as avatar_shape
           FROM messages m LEFT JOIN users u ON m.user_id = u.id
           WHERE m.channel_id = ?
@@ -1223,6 +1232,7 @@ function setupSocketHandlers(io, db) {
 
       // Batch reactions
       const reactionMap = new Map(); // messageId → [reactions]
+      const pollVoteMap = new Map(); // messageId → [votes]
       let pinnedSet = null;
       if (msgIds.length > 0) {
         const ph = msgIds.map(() => '?').join(',');
@@ -1240,6 +1250,16 @@ function setupSocketHandlers(io, db) {
           db.prepare(`SELECT message_id FROM pinned_messages WHERE message_id IN (${ph})`)
             .all(...msgIds).map(r => r.message_id)
         );
+
+        // Batch poll votes
+        db.prepare(`
+          SELECT pv.message_id, pv.option_index, pv.user_id, COALESCE(u.display_name, u.username) as username
+          FROM poll_votes pv JOIN users u ON pv.user_id = u.id
+          WHERE pv.message_id IN (${ph}) ORDER BY pv.id
+        `).all(...msgIds).forEach(v => {
+          if (!pollVoteMap.has(v.message_id)) pollVoteMap.set(v.message_id, []);
+          pollVoteMap.get(v.message_id).push(v);
+        });
       }
 
       const enriched = messages.map(m => {
@@ -1251,6 +1271,20 @@ function setupSocketHandlers(io, db) {
         obj.reactions = reactionMap.get(m.id) || [];
         obj.pinned = pinnedSet ? pinnedSet.has(m.id) : false;
         obj.is_archived = !!m.is_archived;
+        // Parse poll data and attach vote results
+        if (m.poll_data) {
+          try {
+            obj.poll = JSON.parse(m.poll_data);
+            const votes = pollVoteMap.get(m.id) || [];
+            obj.poll.votes = {};
+            obj.poll.options.forEach((_, i) => { obj.poll.votes[i] = []; });
+            votes.forEach(v => {
+              if (!obj.poll.votes[v.option_index]) obj.poll.votes[v.option_index] = [];
+              obj.poll.votes[v.option_index].push({ user_id: v.user_id, username: v.username });
+            });
+            obj.poll.totalVotes = votes.length;
+          } catch (e) { /* invalid poll_data — skip */ }
+        }
         // Flag webhook messages so the client renders a BOT badge
         if (m.is_webhook) {
           obj.is_webhook = true;
@@ -1267,7 +1301,7 @@ function setupSocketHandlers(io, db) {
 
       socket.emit('message-history', {
         channelCode: code,
-        messages: enriched.reverse()
+        messages: after ? enriched : enriched.reverse()
       });
     });
 
@@ -2098,6 +2132,180 @@ function setupSocketHandlers(io, db) {
       }
     });
 
+    // ═══════════════ POLLS ═══════════════════════════════════
+
+    socket.on('create-poll', (data) => {
+      try {
+        if (!data || typeof data !== 'object') return;
+        const question = typeof data.question === 'string' ? data.question.trim() : '';
+        if (!question || question.length > 300) return;
+        const options = Array.isArray(data.options) ? data.options : [];
+        if (options.length < 2 || options.length > 10) return;
+        const cleanOptions = options.map(o => typeof o === 'string' ? sanitizeText(o.trim()) : '').filter(Boolean);
+        if (cleanOptions.length < 2 || cleanOptions.length > 10) return;
+        if (cleanOptions.some(o => o.length > 100)) return;
+        const multiVote = !!data.multiVote;
+        const anonymous = !!data.anonymous;
+
+        if (floodCheck('message')) {
+          return socket.emit('error-msg', 'Slow down — you\'re sending messages too fast');
+        }
+
+        // ── Mute check ─────────────────────
+        const activeMute = db.prepare(
+          'SELECT id, expires_at FROM mutes WHERE user_id = ? AND expires_at > datetime(\'now\') ORDER BY expires_at DESC LIMIT 1'
+        ).get(socket.user.id);
+        if (activeMute) {
+          const remaining = Math.ceil((new Date(activeMute.expires_at + 'Z') - Date.now()) / 60000);
+          return socket.emit('error-msg', `You are muted for ${remaining} more minute${remaining !== 1 ? 's' : ''}`);
+        }
+
+        const code = socket.currentChannel;
+        if (!code) return;
+        const channel = db.prepare('SELECT id, name, channel_type FROM channels WHERE code = ?').get(code);
+        if (!channel) return;
+        if (channel.channel_type === 'voice') return socket.emit('error-msg', 'Polls are not allowed in voice channels');
+        const member = db.prepare('SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?').get(channel.id, socket.user.id);
+        if (!member) return socket.emit('error-msg', 'Not a member of this channel');
+
+        const safeQuestion = sanitizeText(question);
+        if (!safeQuestion) return;
+
+        const pollData = JSON.stringify({ question: safeQuestion, options: cleanOptions, multiVote, anonymous });
+        const content = `📊 Poll: ${safeQuestion}`;
+        const result = db.prepare(
+          'INSERT INTO messages (channel_id, user_id, content, poll_data) VALUES (?, ?, ?, ?)'
+        ).run(channel.id, socket.user.id, content, pollData);
+
+        const message = {
+          id: result.lastInsertRowid,
+          content,
+          created_at: new Date().toISOString(),
+          username: socket.user.displayName,
+          user_id: socket.user.id,
+          avatar: socket.user.avatar || null,
+          avatar_shape: socket.user.avatar_shape || 'circle',
+          reply_to: null,
+          replyContext: null,
+          reactions: [],
+          edited_at: null,
+          poll: { question: safeQuestion, options: cleanOptions, multiVote, anonymous, votes: {}, totalVotes: 0 }
+        };
+        cleanOptions.forEach((_, i) => { message.poll.votes[i] = []; });
+
+        io.to(`channel:${code}`).emit('new-message', { channelCode: code, message });
+        sendPushNotifications(channel.id, code, channel.name, socket.user.id, socket.user.displayName, content);
+
+        try {
+          db.prepare(`
+            INSERT INTO read_positions (user_id, channel_id, last_read_message_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id, channel_id) DO UPDATE SET last_read_message_id = MAX(last_read_message_id, excluded.last_read_message_id)
+          `).run(socket.user.id, channel.id, result.lastInsertRowid);
+        } catch (e) { /* non-critical */ }
+      } catch (err) {
+        console.error('create-poll error:', err.message);
+        socket.emit('error-msg', 'Failed to create poll');
+      }
+    });
+
+    socket.on('vote-poll', (data) => {
+      try {
+        if (!data || typeof data !== 'object') return;
+        if (!isInt(data.messageId)) return;
+        const optionIndex = typeof data.optionIndex === 'number' ? data.optionIndex : -1;
+        if (optionIndex < 0 || optionIndex > 9 || !Number.isInteger(optionIndex)) return;
+
+        const code = socket.currentChannel;
+        if (!code) return;
+        const channel = db.prepare('SELECT id FROM channels WHERE code = ?').get(code);
+        if (!channel) return;
+
+        const msg = db.prepare('SELECT id, poll_data FROM messages WHERE id = ? AND channel_id = ?').get(data.messageId, channel.id);
+        if (!msg || !msg.poll_data) return;
+
+        let poll;
+        try { poll = JSON.parse(msg.poll_data); } catch (e) { return; }
+        if (optionIndex >= poll.options.length) return;
+
+        if (!poll.multiVote) {
+          // Single-vote: remove any previous vote by this user, then insert
+          db.prepare('DELETE FROM poll_votes WHERE message_id = ? AND user_id = ?').run(data.messageId, socket.user.id);
+        }
+
+        db.prepare(
+          'INSERT OR IGNORE INTO poll_votes (message_id, user_id, option_index) VALUES (?, ?, ?)'
+        ).run(data.messageId, socket.user.id, optionIndex);
+
+        // Fetch updated votes for this poll
+        const votes = db.prepare(`
+          SELECT pv.option_index, pv.user_id, COALESCE(u.display_name, u.username) as username
+          FROM poll_votes pv JOIN users u ON pv.user_id = u.id
+          WHERE pv.message_id = ? ORDER BY pv.id
+        `).all(data.messageId);
+
+        const votesByOption = {};
+        poll.options.forEach((_, i) => { votesByOption[i] = []; });
+        votes.forEach(v => {
+          if (!votesByOption[v.option_index]) votesByOption[v.option_index] = [];
+          votesByOption[v.option_index].push({ user_id: v.user_id, username: v.username });
+        });
+
+        io.to(`channel:${code}`).emit('poll-updated', {
+          channelCode: code,
+          messageId: data.messageId,
+          votes: votesByOption,
+          totalVotes: votes.length
+        });
+      } catch (err) {
+        console.error('vote-poll error:', err.message);
+      }
+    });
+
+    socket.on('unvote-poll', (data) => {
+      try {
+        if (!data || typeof data !== 'object') return;
+        if (!isInt(data.messageId)) return;
+        const optionIndex = typeof data.optionIndex === 'number' ? data.optionIndex : -1;
+        if (optionIndex < 0 || optionIndex > 9 || !Number.isInteger(optionIndex)) return;
+
+        const code = socket.currentChannel;
+        if (!code) return;
+        const channel = db.prepare('SELECT id FROM channels WHERE code = ?').get(code);
+        if (!channel) return;
+        const msg = db.prepare('SELECT id, poll_data FROM messages WHERE id = ? AND channel_id = ?').get(data.messageId, channel.id);
+        if (!msg || !msg.poll_data) return;
+
+        db.prepare('DELETE FROM poll_votes WHERE message_id = ? AND user_id = ? AND option_index = ?')
+          .run(data.messageId, socket.user.id, optionIndex);
+
+        let poll;
+        try { poll = JSON.parse(msg.poll_data); } catch (e) { return; }
+
+        const votes = db.prepare(`
+          SELECT pv.option_index, pv.user_id, COALESCE(u.display_name, u.username) as username
+          FROM poll_votes pv JOIN users u ON pv.user_id = u.id
+          WHERE pv.message_id = ? ORDER BY pv.id
+        `).all(data.messageId);
+
+        const votesByOption = {};
+        poll.options.forEach((_, i) => { votesByOption[i] = []; });
+        votes.forEach(v => {
+          if (!votesByOption[v.option_index]) votesByOption[v.option_index] = [];
+          votesByOption[v.option_index].push({ user_id: v.user_id, username: v.username });
+        });
+
+        io.to(`channel:${code}`).emit('poll-updated', {
+          channelCode: code,
+          messageId: data.messageId,
+          votes: votesByOption,
+          totalVotes: votes.length
+        });
+      } catch (err) {
+        console.error('unvote-poll error:', err.message);
+      }
+    });
+
     // ═══════════════ CHANNEL MEMBERS (for @mentions) ═════════
 
     // Periodic member list refresh — client sends this every 30s
@@ -2370,9 +2578,17 @@ function setupSocketHandlers(io, db) {
 
       // Permission check for deletion
       if (msg.user_id === socket.user.id) {
-        // Own message — check delete_own_messages permission
-        if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'delete_own_messages', channel.id)) {
-          return socket.emit('error-msg', 'You don\'t have permission to delete messages');
+        // Own message — users can always delete their own messages.
+        // (delete_own_messages can still be used as an explicit deny override via roles.)
+        if (!socket.user.isAdmin) {
+          try {
+            const deny = db.prepare(
+              "SELECT allowed FROM user_role_perms WHERE user_id = ? AND permission = 'delete_own_messages' ORDER BY allowed ASC LIMIT 1"
+            ).get(socket.user.id);
+            if (deny && deny.allowed === 0) {
+              return socket.emit('error-msg', 'You don\'t have permission to delete messages');
+            }
+          } catch { /* table may not exist */ }
         }
       } else {
         // Other user's message — check delete_message, delete_lower_messages, or admin

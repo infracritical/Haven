@@ -10,7 +10,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <title>Haven</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cG9seWdvbiBwb2ludHM9IjUwLDMgOTMsMjggOTMsNzIgNTAsOTcgNyw3MiA3LDI4IiBmaWxsPSJub25lIiBzdHJva2U9IiM2YjRmZGIiIHN0cm9rZS13aWR0aD0iOCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjx0ZXh0IHg9IjUwIiB5PSI2MyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iYm9sZCIgZm9udC1zaXplPSIzOCIgZmlsbD0iIzZiNGZkYiIgb3BhY2l0eT0iMC45NSI+SDwvdGV4dD48L3N2Zz4=">
-  <link rel="stylesheet" href="/css/style.css?v=2.7.3">
+  <link rel="stylesheet" href="/css/style.css?v=2.7.5">
   <script src="/js/theme-init.js"></script>
 </head>
 <body>
@@ -447,6 +447,8 @@
               <button id="emoji-btn" class="btn-emoji" title="Emoji">😀</button>
               <span class="input-actions-divider"></span>
               <button id="gif-btn" class="btn-gif" title="Search GIFs">GIF</button>
+              <span class="input-actions-divider"></span>
+              <button id="poll-btn" class="btn-poll" title="Create Poll">📊</button>
             </div>
             <div id="emoji-picker" class="emoji-picker" style="display:none"></div>
             <div id="gif-picker" class="gif-picker" style="display:none">
@@ -2024,6 +2026,33 @@
 
   <!-- Webhook Management Modal -->
 
+  <!-- Poll Creation Modal -->
+  <div class="modal-overlay" id="poll-modal" style="display:none">
+    <div class="modal" style="max-width:440px">
+      <h3>📊 Create Poll</h3>
+      <div class="form-group">
+        <label>Question</label>
+        <input type="text" id="poll-question-input" placeholder="What do you want to ask?" maxlength="300" autocomplete="off">
+      </div>
+      <div class="form-group" style="margin-top:8px">
+        <label>Options</label>
+        <div id="poll-options-list" class="poll-options-list">
+          <div class="poll-option-row"><input type="text" class="poll-option-input" placeholder="Option 1" maxlength="100"><button class="poll-option-remove" title="Remove" style="display:none">&times;</button></div>
+          <div class="poll-option-row"><input type="text" class="poll-option-input" placeholder="Option 2" maxlength="100"><button class="poll-option-remove" title="Remove" style="display:none">&times;</button></div>
+        </div>
+        <button class="btn-sm" id="poll-add-option-btn" style="margin-top:6px">+ Add Option</button>
+      </div>
+      <div class="form-group poll-settings-row" style="margin-top:10px">
+        <label class="poll-checkbox-label"><input type="checkbox" id="poll-multi-vote"> Allow multiple votes</label>
+        <label class="poll-checkbox-label"><input type="checkbox" id="poll-anonymous"> Anonymous votes</label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-sm" id="poll-cancel-btn">Cancel</button>
+        <button class="btn-sm btn-accent" id="poll-create-btn">Create Poll</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Channel Roles Modal -->
   <div class="modal-overlay" id="channel-roles-modal" style="display:none">
     <div class="modal modal-wide">
@@ -2273,7 +2302,7 @@
   <script src="/js/voice.js?v=2.6.0"></script>
   <script src="/js/modmode.js?v=2.6.0"></script>
   <script src="/js/e2e.js?v=2.6.0"></script>
-  <script type="module" src="/js/app.js?v=2.7.2"></script>
+  <script type="module" src="/js/app.js?v=2.7.6"></script>
   <script src="/js/plugin-loader.js?v=2.6.0"></script>
 </body>
 </html>

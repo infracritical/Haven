@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.7.2] — 2026-03-10
+
+### Fixed
+- **Scroll-to-bottom cut off on new root messages** — root messages (new sender or reply) have `content-visibility: auto` applied for performance, which causes the browser to estimate their off-screen height at 64 px instead of the real ~80–120 px. `_scrollToBottom` was reading `scrollHeight` with the underestimate and landing short. Fix: newly appended root messages are forced to `content-visibility: visible` before the scroll so the real height is used immediately.
+- **Channel / DM switch landing at wrong scroll position** — switching channels rendered up to 100 messages with `content-visibility` height estimates, then fired a single `requestAnimationFrame` correction. The correction was too early — height estimates kept resolving across subsequent frames, shifting `scrollHeight` after the correction had already fired. Fix: the last 15 messages in the rendered batch are forced visible before the initial scroll, and `_scrollToBottom` now loops up to 8 animation frames, re-scrolling until `scrollHeight` stabilises.
+
+---
+
 ## [2.7.1] — 2026-03-09
 
 ### Added

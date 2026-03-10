@@ -98,6 +98,10 @@ _setupSocketListeners() {
       this._noMoreHistory = false;
       this._loadingHistory = false;
       this._historyBefore = null;
+      this._newestMsgId = null;
+      this._noMoreFuture = true;
+      this._loadingFuture = false;
+      this._historyAfter = null;
       this.socket.emit('get-messages', { code: this.currentChannel });
       this.socket.emit('get-channel-members', { code: this.currentChannel });
       // Request fresh voice list for this channel
@@ -143,6 +147,10 @@ _setupSocketListeners() {
         this._noMoreHistory = false;
         this._loadingHistory = false;
         this._historyBefore = null;
+        this._newestMsgId = null;
+        this._noMoreFuture = true;
+        this._loadingFuture = false;
+        this._historyAfter = null;
         this.socket.emit('get-messages', { code: this.currentChannel });
         this.socket.emit('get-channel-members', { code: this.currentChannel });
       }
@@ -277,10 +285,23 @@ _setupSocketListeners() {
       if (data.messages.length < 80) this._noMoreHistory = true;
       this._oldestMsgId = data.messages[0].id;
       this._prependMessages(data.messages);
+    } else if (this._historyAfter) {
+      // Forward pagination — append newer messages
+      this._loadingFuture = false;
+      this._historyAfter = null;
+      if (data.messages.length === 0) {
+        this._noMoreFuture = true;
+        return;
+      }
+      if (data.messages.length < 80) this._noMoreFuture = true;
+      this._newestMsgId = data.messages[data.messages.length - 1].id;
+      this._appendMessages(data.messages);
     } else {
       // Initial load — replace everything
+      this._noMoreFuture = true;
       if (data.messages.length > 0) {
         this._oldestMsgId = data.messages[0].id;
+        this._newestMsgId = data.messages[data.messages.length - 1].id;
         if (data.messages.length < 80) this._noMoreHistory = true;
       } else {
         this._noMoreHistory = true;
@@ -298,6 +319,22 @@ _setupSocketListeners() {
   // ── Infinite scroll: load older messages on scroll-to-top ──
   const msgContainer = document.getElementById('messages');
   if (msgContainer) {
+    // Track whether the user is "coupled" to the bottom of the feed.
+    // Updated on scroll events (post-layout, so scrollHeight is reliable)
+    // rather than at arbitrary moments when content-visibility:auto may
+    // have shifted scrollHeight without updating scrollTop.
+    this._coupledToBottom = true;
+    msgContainer.addEventListener('scroll', () => {
+      const dist = msgContainer.scrollHeight - msgContainer.clientHeight - msgContainer.scrollTop;
+      if (dist < 150) {
+        this._coupledToBottom = true;
+      } else if (dist > 300) {
+        // Hysteresis: only uncouple when scrolled significantly away,
+        // so minor content-visibility height fluctuations don't false-trigger.
+        this._coupledToBottom = false;
+      }
+    }, { passive: true });
+
     msgContainer.addEventListener('scroll', () => {
       if (msgContainer.scrollTop < 200 && !this._noMoreHistory && !this._loadingHistory && this._oldestMsgId && this.currentChannel) {
         this._loadingHistory = true;
@@ -305,6 +342,17 @@ _setupSocketListeners() {
         this.socket.emit('get-messages', {
           code: this.currentChannel,
           before: this._oldestMsgId
+        });
+      }
+      // Forward pagination: load newer messages when near the bottom and
+      // the DOM window doesn't extend to the latest messages.
+      const distBottom = msgContainer.scrollHeight - msgContainer.clientHeight - msgContainer.scrollTop;
+      if (distBottom < 200 && !this._noMoreFuture && !this._loadingFuture && this._newestMsgId && this.currentChannel) {
+        this._loadingFuture = true;
+        this._historyAfter = this._newestMsgId;
+        this.socket.emit('get-messages', {
+          code: this.currentChannel,
+          after: this._newestMsgId
         });
       }
     });
@@ -320,10 +368,37 @@ _setupSocketListeners() {
     await this._decryptMessages([data.message]);
 
     if (data.channelCode === this.currentChannel) {
-      // Own messages always scroll to bottom so the user sees what they just sent
       const isOwnMessage = data.message.user_id === this.user.id;
-      this._appendMessage(data.message, isOwnMessage);
-      this._markRead(data.message.id);
+
+      // If the user is scrolled into history and the DOM window has been
+      // trimmed (doesn't include the latest messages), skip appending —
+      // the message will be loaded via forward pagination when the user
+      // scrolls back down.  Exception: own messages always snap to present.
+      if (this._noMoreFuture !== false || isOwnMessage) {
+        if (isOwnMessage && this._noMoreFuture === false) {
+          // User sent a message while browsing history — snap back to
+          // the present by doing a fresh load of the channel.
+          this._oldestMsgId = null;
+          this._noMoreHistory = false;
+          this._loadingHistory = false;
+          this._historyBefore = null;
+          this._newestMsgId = null;
+          this._noMoreFuture = true;
+          this._loadingFuture = false;
+          this._historyAfter = null;
+          this.socket.emit('get-messages', { code: this.currentChannel });
+        } else {
+          this._appendMessage(data.message, isOwnMessage);
+          this._newestMsgId = data.message.id;
+        }
+        this._markRead(data.message.id);
+        // Clear any stale badge — but only when the user has actually seen
+        // the new message (coupled to the bottom of the feed).
+        if (this._coupledToBottom && this.unreadCounts[data.channelCode]) {
+          this.unreadCounts[data.channelCode] = 0;
+          this._updateBadge(data.channelCode);
+        }
+      }
       if (data.message.user_id !== this.user.id) {
         // Check if message contains @mention of current user
         const mentionRegex = new RegExp(`@${this.user.username}\\b`, 'i');
@@ -342,8 +417,12 @@ _setupSocketListeners() {
         this.notifications.speak(`${this._getNickname(data.message.user_id, data.message.username)} says: ${data.message.content}`);
       }
     } else {
-      this.unreadCounts[data.channelCode] = (this.unreadCounts[data.channelCode] || 0) + 1;
-      this._updateBadge(data.channelCode);
+      // Only count unread for messages from other users — own message echoes arriving after a
+      // channel switch (race condition) would otherwise trigger a ghost badge.
+      if (data.message.user_id !== this.user.id) {
+        this.unreadCounts[data.channelCode] = (this.unreadCounts[data.channelCode] || 0) + 1;
+        this._updateBadge(data.channelCode);
+      }
       // Don't play notification sounds for your own messages in other channels
       if (data.message.user_id !== this.user.id) {
         // Check @mention even in other channels
@@ -442,6 +521,13 @@ _setupSocketListeners() {
   this.socket.on('reactions-updated', (data) => {
     if (data.channelCode === this.currentChannel) {
       this._updateMessageReactions(data.messageId, data.reactions);
+    }
+  });
+
+  // ── Polls ─────────────────────────────────────────
+  this.socket.on('poll-updated', (data) => {
+    if (data.channelCode === this.currentChannel) {
+      this._updatePollVotes(data.messageId, data.votes, data.totalVotes);
     }
   });
 
@@ -687,7 +773,7 @@ _setupSocketListeners() {
         // If the next sibling is a compact message (grouped), promote it to a full message
         const next = msgEl.nextElementSibling;
         if (next && next.classList.contains('message-compact')) {
-          this._promoteCompactToFull(next);
+          try { this._promoteCompactToFull(next); } catch (e) { /* don't let promotion failure block removal */ }
         }
         msgEl.remove();
       }

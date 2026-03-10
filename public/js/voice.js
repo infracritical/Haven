@@ -301,6 +301,12 @@ class VoiceManager {
         video: false
       });
 
+      // Opt out of Windows audio ducking (Desktop app only).
+      // Must be called after getUserMedia so our audio session exists.
+      if (window.havenDesktop?.audio?.optOutOfDucking) {
+        setTimeout(() => window.havenDesktop.audio.optOutOfDucking().catch(() => {}), 500);
+      }
+
       // ── Noise Gate via Web Audio ──
       // Route mic through an analyser + gain node so we can silence
       // audio below a threshold before sending it to peers.

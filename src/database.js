@@ -652,6 +652,23 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_totp_backup_user ON totp_backup_codes(user_id);
   `);
 
+  // ── Migration: polls support ─────────────────────────
+  try {
+    db.exec("ALTER TABLE messages ADD COLUMN poll_data TEXT DEFAULT NULL");
+  } catch (e) { /* column already exists */ }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS poll_votes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      option_index INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(message_id, user_id, option_index)
+    );
+    CREATE INDEX IF NOT EXISTS idx_poll_votes_msg ON poll_votes(message_id);
+  `);
+
   return db;
 }
 
