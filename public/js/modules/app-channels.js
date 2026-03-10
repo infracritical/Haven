@@ -114,14 +114,15 @@ _updateTopicBar(topic) {
     const header = document.querySelector('.channel-header');
     header.parentNode.insertBefore(bar, header.nextSibling);
   }
+  const canEdit = this.user.isAdmin || this._hasPerm('set_channel_topic');
   if (topic) {
     bar.textContent = topic;
     bar.style.display = 'block';
-    bar.title = this.user.isAdmin ? 'Click to edit topic' : topic;
-    bar.onclick = this.user.isAdmin ? () => this._editTopic() : null;
-    bar.style.cursor = this.user.isAdmin ? 'pointer' : 'default';
+    bar.title = canEdit ? 'Click to edit topic' : topic;
+    bar.onclick = canEdit ? () => this._editTopic() : null;
+    bar.style.cursor = canEdit ? 'pointer' : 'default';
   } else {
-    if (this.user.isAdmin) {
+    if (canEdit) {
       bar.textContent = 'Click to set a topic...';
       bar.style.display = 'block';
       bar.style.opacity = '0.4';
