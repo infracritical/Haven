@@ -1577,8 +1577,18 @@ _updateChannelVoiceIndicators() {
         el.after(userList);
       }
       userList.innerHTML = users.map(u =>
-        `<div class="channel-voice-user" data-user-id="${u.id}"><span class="cvu-icon">🎤</span>${this._escapeHtml(u.username)}</div>`
+        `<div class="channel-voice-user" data-user-id="${u.id}" data-username="${this._escapeHtml(u.username)}"><span class="cvu-icon">🎤</span>${this._escapeHtml(u.username)}</div>`
       ).join('');
+      // Right-click on a left-sidebar voice user → same voice options menu
+      userList.querySelectorAll('.channel-voice-user').forEach(item => {
+        item.addEventListener('contextmenu', (e) => {
+          const userId = parseInt(item.dataset.userId);
+          if (isNaN(userId) || userId === this.user.id) return;
+          e.preventDefault();
+          e.stopPropagation();
+          this._showVoiceUserMenu(item, userId, item.dataset.username || '');
+        });
+      });
     } else {
       if (indicator) indicator.remove();
       // Remove voice user list

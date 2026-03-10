@@ -908,9 +908,9 @@ _appendE2ENotice(text) {
  * Decrypt E2E-encrypted messages in place.
  * Both sides derive the same ECDH shared secret.
  */
-async _decryptMessages(messages) {
+async _decryptMessages(messages, channelCode = null) {
   if (!this.e2e || !this.e2e.ready || !messages || !messages.length) return;
-  const ch = this.channels.find(c => c.code === this.currentChannel);
+  const ch = this.channels.find(c => c.code === (channelCode || this.currentChannel));
   if (!ch || !ch.is_dm || !ch.dm_target) return;
 
   const partnerId = ch.dm_target.id;
