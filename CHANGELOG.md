@@ -11,6 +11,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.7.3] — 2026-03-11
+
+### Added
+- **Fullscreen buttons on stream & webcam tiles** — inline screen-share and webcam tiles now have a dedicated fullscreen button (⛶) that appears on hover, alongside the existing pop-out button.
+- **Fullscreen on stream/webcam PiP overlays** — the floating PiP overlay windows for screen share and webcam streams now include a fullscreen button (⤢) in the controls bar.
+
+### Fixed
+- **Video fullscreen in Desktop** — the native video controls' fullscreen button and the `...` menu fullscreen option now actually work inside Haven Desktop. Previously all fullscreen calls were silently ignored by Electron's BrowserView layer.
+- **Uploaded video PiP seek bar** — entering PiP on an uploaded video now properly exposes a seek bar via MediaSession metadata, and wires up play/pause actions so the PiP controls are fully functional.
+- **Sub-channel creation by mods** — mods with the `create_channel` permission were unable to create sub-channels (which required `manage_sub_channels`). Either permission now grants sub-channel create/delete access.
+
+---
+
 ## [2.7.2] — 2026-03-10
 
 ### Fixed
