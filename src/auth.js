@@ -640,6 +640,116 @@ function verifyToken(token) {
   }
 }
 
+// ── Account Recovery Codes ─────────────────────────────
+// Users generate these in advance. Each is a one-time token that can reset
+// their password (and clear their E2E keys) without admin involvement.
+
+router.get('/recovery-codes/status', async (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const decoded = jwt.verify(auth.slice(7), JWT_SECRET);
+    const db = getDb();
+    const count = db.prepare(
+      'SELECT COUNT(*) as count FROM account_recovery_codes WHERE user_id = ? AND used = 0'
+    ).get(decoded.id);
+    res.json({ count: count?.count || 0 });
+  } catch {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+router.post('/recovery-codes/generate', authLimiter, async (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const decoded = jwt.verify(auth.slice(7), JWT_SECRET);
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+    if (!password) return res.status(400).json({ error: 'Password required' });
+
+    const db = getDb();
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
+    if (!user) return res.status(401).json({ error: 'User not found' });
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Incorrect password' });
+
+    // Generate 8 new codes, replacing any existing unused ones
+    const codes = generateBackupCodes(8);
+    db.prepare('DELETE FROM account_recovery_codes WHERE user_id = ?').run(user.id);
+    const insertCode = db.prepare('INSERT INTO account_recovery_codes (user_id, code_hash) VALUES (?, ?)');
+    for (const c of codes) {
+      const hash = await bcrypt.hash(c, 10);
+      insertCode.run(user.id, hash);
+    }
+
+    console.log(`🔑 Recovery codes generated for "${user.username}" from ${req.ip || 'unknown'}`);
+    res.json({ codes });
+  } catch {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+router.post('/recover-account', authLimiter, async (req, res) => {
+  try {
+    const username = sanitizeString(req.body.username, 20);
+    const code = typeof req.body.code === 'string' ? req.body.code.trim().toUpperCase() : '';
+    const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword : '';
+
+    if (!username || !code || !newPassword) {
+      return res.status(400).json({ error: 'Username, recovery code, and new password required' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    }
+
+    const db = getDb();
+    const user = db.prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?)').get(username);
+    if (!user) return res.status(401).json({ error: 'Invalid username or recovery code' });
+
+    // Find a matching unused code
+    const storedCodes = db.prepare(
+      'SELECT id, code_hash FROM account_recovery_codes WHERE user_id = ? AND used = 0'
+    ).all(user.id);
+
+    let matchedId = null;
+    for (const sc of storedCodes) {
+      if (await bcrypt.compare(code, sc.code_hash)) {
+        matchedId = sc.id;
+        break;
+      }
+    }
+    if (!matchedId) return res.status(401).json({ error: 'Invalid username or recovery code' });
+
+    // Mark code used
+    db.prepare('UPDATE account_recovery_codes SET used = 1 WHERE id = ?').run(matchedId);
+
+    // Reset password, bump version, clear E2E keys, clear TOTP
+    const newHash = await bcrypt.hash(newPassword, 12);
+    const newVersion = (user.password_version || 1) + 1;
+    db.prepare(`
+      UPDATE users SET
+        password_hash = ?,
+        password_version = ?,
+        totp_secret = NULL,
+        totp_enabled = 0,
+        public_key = NULL,
+        encrypted_private_key = NULL,
+        e2e_key_salt = NULL,
+        e2e_secret = NULL
+      WHERE id = ?
+    `).run(newHash, newVersion, user.id);
+    db.prepare('DELETE FROM totp_backup_codes WHERE user_id = ?').run(user.id);
+    db.prepare('DELETE FROM account_recovery_codes WHERE user_id = ?').run(user.id);
+
+    console.log(`🔑 Account recovery used for "${user.username}" from ${req.ip || 'unknown'} — E2E keys cleared`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Account recovery error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── Admin Recovery ──────────────────────────────────────
 // Allows the server owner to reclaim admin access using their .env credentials.
 // This is a last-resort mechanism if the admin gets banned, demoted, or locked out.

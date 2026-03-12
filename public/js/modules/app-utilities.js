@@ -15,6 +15,7 @@ _safeColor(c, fallback = '') {
 _isImageUrl(str) {
   if (!str) return false;
   const trimmed = str.trim();
+  if (trimmed.startsWith('e2e-img:')) return true;
   if (/^\/uploads\/[\w\-]+\.(jpg|jpeg|png|gif|webp)$/i.test(trimmed)) return true;
   if (/^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)(\?[^"'<>]*)?$/i.test(trimmed)) return true;
   // GIPHY GIF URLs (may not have file extensions)
@@ -54,6 +55,14 @@ _isEmojiOnly(str) {
 },
 
 _formatContent(str) {
+  // E2E encrypted image: e2e-img:<mime>:<url>
+  const e2eImgMatch = str.match(/^e2e-img:(image\/(?:jpeg|png|gif|webp)):(\/uploads\/[\w\-.]+)$/i);
+  if (e2eImgMatch) {
+    const mime = this._escapeHtml(e2eImgMatch[1]);
+    const url = this._escapeHtml(e2eImgMatch[2]);
+    return `<img data-e2e-src="${url}" data-e2e-mime="${mime}" class="chat-image e2e-img-pending" alt="Encrypted image" title="🔒 End-to-end encrypted image">`;
+  }
+
   // Decode legacy HTML entities from old server-side sanitization.
   // The server no longer entity-encodes, but older messages in the DB
   // may still contain entities like &#39; &amp; &lt; etc.
@@ -323,6 +332,57 @@ _showToast(message, type = 'info', action = null, duration = 4000) {
   }
   container.appendChild(toast);
   setTimeout(() => toast.remove(), duration);
+},
+
+/** Show a one-time notice about the Account Recovery feature */
+_showRecoveryNotice() {
+  // Guard: only show once
+  if (localStorage.getItem('haven_recovery_notice_v1')) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay recovery-notice-overlay';
+  overlay.style.cssText = 'display:flex;z-index:9999';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:400px">
+      <h3>🔑 Account Recovery Codes</h3>
+      <p class="modal-desc" style="margin-bottom:12px">You can now generate one-time recovery codes in <strong>Settings → 🔑 Recovery</strong>. If you ever forget your password, these codes let you reset it — no admin needed.</p>
+      <div style="background:rgba(231,76,60,0.12);border:1px solid rgba(231,76,60,0.4);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:0.83rem;color:var(--text-secondary)">
+        ⚠️ <strong>Heads up:</strong> Using a recovery code resets your password <em>and</em> wipes your E2E encryption keys on other devices. Encrypted DMs will be unreadable on any device you haven't used recently.
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--text-muted);margin-bottom:14px;cursor:pointer">
+        <input type="checkbox" id="recovery-notice-dsa">
+        <span>Don't show this again</span>
+      </label>
+      <div class="modal-actions">
+        <button class="btn-primary" id="recovery-notice-go">Go to Recovery Settings</button>
+        <button class="btn-sm" id="recovery-notice-close" style="padding:8px 18px">Dismiss</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const dismiss = () => {
+    if (document.getElementById('recovery-notice-dsa')?.checked) {
+      localStorage.setItem('haven_recovery_notice_v1', '1');
+    }
+    overlay.remove();
+  };
+
+  document.getElementById('recovery-notice-close').addEventListener('click', dismiss);
+  document.getElementById('recovery-notice-go').addEventListener('click', () => {
+    if (document.getElementById('recovery-notice-dsa')?.checked) {
+      localStorage.setItem('haven_recovery_notice_v1', '1');
+    }
+    overlay.remove();
+    // Open settings modal and navigate to recovery section
+    document.getElementById('open-settings-btn')?.click();
+    setTimeout(() => {
+      const navItem = document.querySelector('.settings-nav-item[data-target="section-recovery"]');
+      if (navItem) navItem.click();
+    }, 150);
+  });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
 },
 
 /** Warn users before downloading potentially harmful file types */

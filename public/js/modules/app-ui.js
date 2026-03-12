@@ -273,6 +273,11 @@ _setupUI() {
       const newType = isVoiceOnly ? 'standard' : 'voice';
       optimistic({ channel_type: newType });
       this.socket.emit('set-channel-type', { code, type: newType });
+    } else if (fn === 'announcement') {
+      const isAnnouncement = ch && ch.notification_type === 'announcement';
+      const newType = isAnnouncement ? 'default' : 'announcement';
+      optimistic({ notification_type: newType });
+      this.socket.emit('set-notification-type', { code, type: newType });
     } else if (fn === 'user-limit') {
       // If an input is already showing, don't open another
       if (row.querySelector('.cfn-input')) return;
@@ -1782,6 +1787,95 @@ _setupUI() {
     }
   });
 
+  // ── Recovery Codes section ───────────────────────────
+  const loadRecoveryStatus = async () => {
+    const statusEl = document.getElementById('recovery-code-status');
+    if (!statusEl) return;
+    try {
+      const res = await fetch('/api/auth/recovery-codes/status', {
+        headers: { 'Authorization': `Bearer ${this.token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) { statusEl.textContent = data.error || 'Error'; return; }
+      statusEl.textContent = data.count > 0
+        ? `You have ${data.count} unused recovery code${data.count === 1 ? '' : 's'}.`
+        : 'You have no recovery codes. Generate some now.';
+    } catch {
+      statusEl.textContent = 'Connection error';
+    }
+  };
+
+  // Load status when Recovery section becomes visible
+  if (settingsNav) {
+    const _origSettingsNavHandler = settingsNav._recoveryNavAdded;
+    if (!_origSettingsNavHandler) {
+      settingsNav._recoveryNavAdded = true;
+      settingsNav.addEventListener('click', (e) => {
+        const item = e.target.closest('.settings-nav-item');
+        if (item && item.dataset.target === 'section-recovery') {
+          loadRecoveryStatus();
+          document.getElementById('recovery-gen-status').textContent = '';
+          document.getElementById('recovery-gen-password').value = '';
+          document.getElementById('recovery-generate-area').style.display = '';
+          document.getElementById('recovery-codes-area').style.display = 'none';
+        }
+      });
+    }
+  }
+
+  document.getElementById('recovery-generate-btn')?.addEventListener('click', async () => {
+    const password = document.getElementById('recovery-gen-password')?.value;
+    const statusEl = document.getElementById('recovery-gen-status');
+    if (!password) { statusEl.textContent = 'Enter your password to confirm'; return; }
+    statusEl.textContent = '';
+    try {
+      const res = await fetch('/api/auth/recovery-codes/generate', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      const data = await res.json();
+      if (!res.ok) { statusEl.textContent = data.error || 'Failed'; return; }
+
+      const codesEl = document.getElementById('recovery-codes-list');
+      if (codesEl) codesEl.innerHTML = data.codes.map(c => `<div>${c}</div>`).join('');
+      document.getElementById('recovery-generate-area').style.display = 'none';
+      document.getElementById('recovery-codes-area').style.display = '';
+      loadRecoveryStatus();
+    } catch {
+      statusEl.textContent = 'Connection error';
+    }
+  });
+
+  document.getElementById('recovery-copy-btn')?.addEventListener('click', () => {
+    const codesEl = document.getElementById('recovery-codes-list');
+    if (!codesEl) return;
+    const text = Array.from(codesEl.querySelectorAll('div')).map(d => d.textContent).join('\n');
+    const btn = document.getElementById('recovery-copy-btn');
+    const markCopied = () => {
+      btn.textContent = '✅ Copied!';
+      setTimeout(() => { btn.textContent = '📋 Copy Codes'; }, 2000);
+    };
+    navigator.clipboard.writeText(text).then(markCopied).catch(() => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        markCopied();
+      } catch { /* could not copy */ }
+    });
+  });
+
+  document.getElementById('recovery-codes-done-btn')?.addEventListener('click', () => {
+    document.getElementById('recovery-codes-area').style.display = 'none';
+    document.getElementById('recovery-generate-area').style.display = '';
+    document.getElementById('recovery-gen-password').value = '';
+  });
+
   // ── Plugin refresh button ─────────────────────────────
   document.getElementById('plugin-refresh-btn')?.addEventListener('click', () => {
     if (window.HavenPluginLoader) {
@@ -2992,6 +3086,51 @@ async _uploadImage(file) {
   const _maxMb = parseInt(this.serverSettings?.max_upload_mb) || 25;
   if (file.size > _maxMb * 1024 * 1024) {
     return this._showToast(`Image too large (max ${_maxMb} MB)`, 'error');
+  }
+
+  // Detect E2E DM — encrypt file bytes before uploading
+  const ch = this.channels.find(c => c.code === targetChannel);
+  const isDm = ch && ch.is_dm && ch.dm_target;
+  let partner = isDm ? this._getE2EPartner() : null;
+  if (isDm && !partner && this.e2e && this.e2e.ready) {
+    const jwk = await this.e2e.requestPartnerKey(this.socket, ch.dm_target.id);
+    if (jwk) { this._dmPublicKeys[ch.dm_target.id] = jwk; partner = this._getE2EPartner(); }
+  }
+
+  if (partner) {
+    // E2E path: encrypt file → upload as opaque blob → send encrypted text marker
+    try {
+      this._showToast('Encrypting & uploading image...', 'info');
+      const arrayBuffer = await file.arrayBuffer();
+      const encrypted = await this.e2e.encryptBytes(arrayBuffer, partner.userId, partner.publicKeyJwk);
+      const blob = new Blob([encrypted], { type: 'application/octet-stream' });
+      const formData = new FormData();
+      formData.append('file', blob, 'e2e-image.enc');
+      const res = await fetch('/api/upload-file', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${this.token}` },
+        body: formData
+      });
+      if (!res.ok) {
+        let errMsg = `Upload failed (${res.status})`;
+        try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
+        return this._showToast(errMsg, 'error');
+      }
+      const data = await res.json();
+      const mime = file.type || 'image/png';
+      const marker = `e2e-img:${mime}:${data.url}`;
+      const encryptedText = await this.e2e.encrypt(marker, partner.userId, partner.publicKeyJwk);
+      this.socket.emit('send-message', {
+        code: targetChannel,
+        content: encryptedText,
+        encrypted: true
+      });
+      this.notifications.play('sent');
+    } catch (err) {
+      console.warn('[E2E] Image encryption failed:', err);
+      this._showToast('Encrypted image upload failed', 'error');
+    }
+    return;
   }
 
   const formData = new FormData();

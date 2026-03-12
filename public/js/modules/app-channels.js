@@ -302,6 +302,9 @@ _updateChannelFunctionsPanel(ch) {
   // User limit greyed for text-only (no voice = no limit needed)
   const userLimitRow = document.querySelector('.cfn-row[data-fn="user-limit"]');
   if (userLimitRow) userLimitRow.classList.toggle('cfn-disabled', isTextOnly);
+  // Announcement channel
+  const isAnnouncement = ch.notification_type === 'announcement';
+  this._setCfnBadge('announcement', isAnnouncement, isAnnouncement ? 'ON' : 'OFF');
 },
 
 _closeChannelCtxMenu() {
@@ -1081,7 +1084,8 @@ _renderChannels() {
     const hasSubs = !isSub && (subChannelMap[ch.id] || []).length > 0;
     const isCollapsed = hasSubs && localStorage.getItem(`haven_subs_collapsed_${ch.code}`) === 'true';
 
-    const hashIcon = isSub ? (ch.is_private ? '🔒' : '↳') : '#';
+    const isAnnouncement = ch.notification_type === 'announcement';
+    const hashIcon = isSub ? (ch.is_private ? '🔒' : '↳') : (isAnnouncement ? '📢' : '#');
 
     // Build small status indicators for channel features
     let indicators = '';
@@ -1123,7 +1127,7 @@ _renderChannels() {
     const count = (ch.code in this.unreadCounts) ? this.unreadCounts[ch.code] : (ch.unreadCount || 0);
     if (count > 0) {
       const badge = document.createElement('span');
-      badge.className = 'channel-badge';
+      badge.className = 'channel-badge' + (isAnnouncement ? ' announcement-badge' : '');
       badge.textContent = count > 99 ? '99+' : count;
       el.appendChild(badge);
     }
@@ -1429,7 +1433,9 @@ _updateBadge(code) {
   const count = this.unreadCounts[code] || 0;
 
   if (count > 0) {
-    if (!badge) { badge = document.createElement('span'); badge.className = 'channel-badge'; el.appendChild(badge); }
+    const ch = this.channels.find(c => c.code === code);
+    const isAnn = ch && ch.notification_type === 'announcement';
+    if (!badge) { badge = document.createElement('span'); badge.className = 'channel-badge' + (isAnn ? ' announcement-badge' : ''); el.appendChild(badge); }
     badge.textContent = count > 99 ? '99+' : count;
   } else if (badge) {
     badge.remove();

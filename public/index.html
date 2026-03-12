@@ -35,7 +35,14 @@
         </div>
         <button type="submit" class="btn-primary">Login</button>
         <p id="admin-recover-link" style="text-align:center;margin-top:8px;font-size:0.8rem">
-          <a href="#" style="color:var(--text-muted);text-decoration:none" onclick="document.getElementById('admin-recover-link').innerHTML='<small>Enter your admin credentials above and click Recover</small><br><button type=\\'button\\' class=\\'btn-primary\\' id=\\'admin-recover-btn\\' style=\\'margin-top:6px;font-size:0.85rem;padding:6px 16px\\'>Recover Admin Access</button>';return false">Locked out? Admin recovery</a>
+          <a href="#" id="admin-recover-show" style="color:var(--text-muted);text-decoration:none">Locked out? Admin recovery</a>
+        </p>
+        <div id="admin-recover-section" style="display:none;text-align:center;margin-top:8px">
+          <small style="color:var(--text-muted)">Enter your admin credentials above and click Recover</small><br>
+          <button type="button" class="btn-primary" id="admin-recover-btn" style="margin-top:6px;font-size:0.85rem;padding:6px 16px">Recover Admin Access</button>
+        </div>
+        <p style="text-align:center;margin-top:6px;font-size:0.8rem">
+          <a href="#" id="forgot-password-show" style="color:var(--text-muted);text-decoration:none">Forgot password?</a>
         </p>
       </form>
 
@@ -78,6 +85,38 @@
         </p>
         <p style="text-align:center;margin-top:4px">
           <a href="#" id="totp-back-btn" style="color:var(--text-muted);font-size:0.8rem;text-decoration:none">← Back to login</a>
+        </p>
+      </form>
+
+      <!-- Account Recovery / Forgot Password form -->
+      <form id="recover-form" class="auth-form" style="display:none">
+        <p style="text-align:center;color:var(--text-muted);font-size:0.9rem;margin-bottom:12px;">
+          🔑 Reset password with a recovery code
+        </p>
+        <div style="background:rgba(231,76,60,0.12);border:1px solid rgba(231,76,60,0.4);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:0.8rem;color:var(--text-secondary)">
+          ⚠️ This will <strong>permanently erase your encryption keys</strong>. All encrypted DM history will be unreadable.
+        </div>
+        <div class="form-group">
+          <label for="recover-username">Username</label>
+          <input type="text" id="recover-username" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label for="recover-code">Recovery Code</label>
+          <input type="text" id="recover-code" placeholder="XXXX-XXXX" maxlength="9"
+                 style="font-family:monospace;letter-spacing:0.1em" autocomplete="off" required>
+        </div>
+        <div class="form-group">
+          <label for="recover-new-password">New Password</label>
+          <input type="password" id="recover-new-password" autocomplete="new-password" minlength="8" required>
+          <small>Minimum 8 characters</small>
+        </div>
+        <div class="form-group">
+          <label for="recover-confirm-password">Confirm New Password</label>
+          <input type="password" id="recover-confirm-password" autocomplete="new-password" required>
+        </div>
+        <button type="submit" class="btn-primary">Reset Password</button>
+        <p style="text-align:center;margin-top:8px">
+          <a href="#" id="recover-back-btn" style="color:var(--text-muted);font-size:0.8rem;text-decoration:none">← Back to login</a>
         </p>
       </form>
 

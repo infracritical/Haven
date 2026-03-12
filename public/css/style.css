@@ -5606,6 +5606,21 @@ html.rgb-cycling *::after {
 
 .chat-image:hover { opacity: 0.85; }
 
+/* E2E encrypted image loading states */
+.e2e-img-pending,
+.e2e-img-loading {
+  width: 180px;
+  height: 120px;
+  background: var(--bg-tertiary, rgba(255,255,255,0.05));
+  border: 1px dashed var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.e2e-img-loading { animation: e2eImgPulse 1.2s ease-in-out infinite; }
+@keyframes e2eImgPulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+.e2e-img-failed { opacity: 0.4; border-color: var(--danger, #e74c3c); }
+
 /* Full inline mode (Discord-style, toggled via client setting) */
 .image-mode-full .chat-image {
   max-width: min(400px, 70%);
@@ -10307,6 +10322,21 @@ video:-webkit-full-screen {
   margin-left: 4px;
   opacity: 0.7;
   cursor: default;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ANNOUNCEMENT CHANNELS
+   ═══════════════════════════════════════════════════════════ */
+
+.message.announcement,
+.message-compact.announcement {
+  border-left: 3px solid #d4a017;
+  background: rgba(212, 160, 23, 0.05);
+}
+
+.announcement-badge {
+  background: #d4a017 !important;
+  color: #fff !important;
 }
 
 .pinned-panel {

@@ -733,7 +733,7 @@ function setupSocketHandlers(io, db) {
                  c.code_visibility, c.code_mode, c.code_rotation_type, c.code_rotation_interval,
                  c.parent_channel_id, c.position, c.is_private,
                  c.streams_enabled, c.music_enabled, c.media_enabled, c.slow_mode_interval, c.category, c.sort_alphabetical,
-                 c.cleanup_exempt, c.channel_type, c.voice_user_limit
+                 c.cleanup_exempt, c.channel_type, c.voice_user_limit, c.notification_type
           FROM channels c
           WHERE c.is_dm = 0
           UNION
@@ -741,7 +741,7 @@ function setupSocketHandlers(io, db) {
                  c.code_visibility, c.code_mode, c.code_rotation_type, c.code_rotation_interval,
                  c.parent_channel_id, c.position, c.is_private,
                  c.streams_enabled, c.music_enabled, c.media_enabled, c.slow_mode_interval, c.category, c.sort_alphabetical,
-                 c.cleanup_exempt, c.channel_type, c.voice_user_limit
+                 c.cleanup_exempt, c.channel_type, c.voice_user_limit, c.notification_type
           FROM channels c
           JOIN channel_members cm ON c.id = cm.channel_id
           WHERE cm.user_id = ? AND c.is_dm = 1
@@ -758,7 +758,7 @@ function setupSocketHandlers(io, db) {
                  c.code_visibility, c.code_mode, c.code_rotation_type, c.code_rotation_interval,
                  c.parent_channel_id, c.position, c.is_private,
                  c.streams_enabled, c.music_enabled, c.media_enabled, c.slow_mode_interval, c.category, c.sort_alphabetical,
-                 c.cleanup_exempt, c.channel_type, c.voice_user_limit
+                 c.cleanup_exempt, c.channel_type, c.voice_user_limit, c.notification_type
           FROM channels c
           JOIN channel_members cm ON c.id = cm.channel_id
           WHERE cm.user_id = ?
@@ -5854,6 +5854,29 @@ function setupSocketHandlers(io, db) {
       } catch (err) {
         console.error('Set voice user limit error:', err);
         socket.emit('error-msg', 'Failed to set voice user limit');
+      }
+    });
+
+    // ── Set channel notification type (default / announcement) ────
+    socket.on('set-notification-type', (data) => {
+      if (!data || typeof data !== 'object') return;
+      if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'create_channel')) {
+        return socket.emit('error-msg', 'You don\'t have permission to change channel notification type');
+      }
+      const code = typeof data.code === 'string' ? data.code.trim() : '';
+      if (!code || !/^[a-f0-9]{8}$/i.test(code)) return;
+      const type = typeof data.type === 'string' ? data.type : '';
+      if (!['default', 'announcement'].includes(type)) return socket.emit('error-msg', 'Invalid notification type');
+      const channel = db.prepare('SELECT id FROM channels WHERE code = ? AND is_dm = 0').get(code);
+      if (!channel) return socket.emit('error-msg', 'Channel not found');
+      try {
+        db.prepare('UPDATE channels SET notification_type = ? WHERE id = ?').run(type, channel.id);
+        broadcastChannelLists();
+        const labels = { default: '🔔 Channel notifications reset to default', announcement: '📢 Channel set to announcement mode' };
+        socket.emit('toast', { message: labels[type], type: 'success' });
+      } catch (err) {
+        console.error('Set notification type error:', err);
+        socket.emit('error-msg', 'Failed to set notification type');
       }
     });
 

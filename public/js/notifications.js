@@ -16,6 +16,7 @@ class NotificationManager {
       mention: this._loadPref('haven_notif_mention_sound', 'bell'),
       join: this._loadPref('haven_notif_join_sound', 'chime'),
       leave: this._loadPref('haven_notif_leave_sound', 'drop'),
+      announcement: this._loadPref('haven_notif_announcement_sound', 'announcement'),
     };
     this._audioCache = {}; // cache Audio objects for custom sounds
   }
@@ -80,6 +81,7 @@ class NotificationManager {
   alert() { this._playTone([880, 1100, 880, 1100], [0.08, 0.08, 0.08, 0.12], 'sine'); }
   chord() { this._playTone([523, 659, 784, 1047], [0.1, 0.08, 0.08, 0.2], 'sine'); }
   swoosh(){ this._playTone([400, 600, 800], [0.04, 0.04, 0.06], 'sine'); }  // soft ascending — "sent"
+  announcement() { this._playTone([523, 659, 784, 1047], [0.12, 0.1, 0.1, 0.25], 'sine'); } // bright ascending chord — announcement
 
   // ── Voice action cues (always play at current volume) ───
   mute_on()  { this._playTone([600, 400], [0.06, 0.08], 'sine'); }

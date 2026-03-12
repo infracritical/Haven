@@ -944,4 +944,47 @@ async _decryptMessages(messages, channelCode = null) {
   }
 },
 
+/**
+ * Find all e2e-img-pending images in a DOM element (or the messages container),
+ * fetch their encrypted data, decrypt, and display as blob URLs.
+ */
+_decryptE2EImages(root) {
+  if (!root) root = document.getElementById('messages');
+  if (!root) return;
+  const imgs = root.querySelectorAll('img.e2e-img-pending');
+  if (!imgs.length) return;
+
+  const partner = this._getE2EPartner();
+  if (!partner) return;
+
+  imgs.forEach(img => {
+    img.classList.remove('e2e-img-pending');
+    img.classList.add('e2e-img-loading');
+    const url = img.dataset.e2eSrc;
+    const mime = img.dataset.e2eMime || 'image/png';
+
+    // Only fetch local upload paths to prevent SSRF
+    if (!url || !url.startsWith('/uploads/')) {
+      img.alt = '[Invalid encrypted image URL]';
+      img.classList.remove('e2e-img-loading');
+      img.classList.add('e2e-img-failed');
+      return;
+    }
+
+    fetch(url)
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+      .then(buf => this.e2e.decryptBytes(new Uint8Array(buf), partner.userId, partner.publicKeyJwk))
+      .then(plain => {
+        const blob = new Blob([plain], { type: mime });
+        img.src = URL.createObjectURL(blob);
+        img.classList.remove('e2e-img-loading');
+      })
+      .catch(() => {
+        img.alt = '[Encrypted image — unable to decrypt]';
+        img.classList.remove('e2e-img-loading');
+        img.classList.add('e2e-img-failed');
+      });
+  });
+},
+
 };

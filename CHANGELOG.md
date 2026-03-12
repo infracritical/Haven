@@ -11,6 +11,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.7.4] — 2026-03-11
+
+### Added
+- **Account recovery codes** — users can generate a set of one-time recovery codes in Settings (🔑 Recovery). If you ever forget your password, you can use one of these codes from the login screen to reset it without needing admin help or email. Recovery codes also work as an offline backup in case TOTP access is lost.
+
+### Fixed
+- **Admin panel member list showed extra role badges** — admin users appeared with both their DB-assigned roles (e.g. User, Jester) and the Admin badge in the All Members list. Now only the Admin badge is shown.
+- **Admin Recovery button on login screen was broken** — inline event handler had a string escape bug that silently prevented the recovery form from toggling. Rewritten as a proper static handler.
+- **E2E backup re-upload after account recovery** — when a user recovered their account on a device that still had E2E keys cached in IndexedDB, the server-side backup (public key) remained NULL, breaking encrypted sessions for other users. The client now detects this mismatch on connect and automatically re-uploads the backup.
+
+---
+
 ## [2.7.3] — 2026-03-11
 
 ### Added

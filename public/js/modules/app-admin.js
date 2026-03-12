@@ -682,7 +682,8 @@ _renderAllMembers(members) {
   const isSelf = (id) => id === this.user.id;
 
   list.innerHTML = members.map(m => {
-    const rolesHtml = m.roles.map(r =>
+    // Admin supersedes all other roles — only show the Admin badge, not DB-assigned roles
+    const rolesHtml = m.isAdmin ? '' : m.roles.map(r =>
       `<span class="aml-role-badge" style="border-color:${this._safeColor(r.color, '#888')};color:${this._safeColor(r.color, '#888')}">${this._escapeHtml(r.name)}</span>`
     ).join('');
     const adminBadge = m.isAdmin ? '<span class="aml-admin-badge">Admin</span>' : '';

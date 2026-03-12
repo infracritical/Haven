@@ -125,6 +125,7 @@
       loginForm.style.display = target === 'login' ? 'flex' : 'none';
       registerForm.style.display = target === 'register' ? 'flex' : 'none';
       totpForm.style.display = 'none';
+      document.getElementById('recover-form').style.display = 'none';
       hideError();
     });
   });
@@ -139,6 +140,12 @@
   }
 
   // ── Admin Recovery ────────────────────────────────────
+  document.getElementById('admin-recover-show').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('admin-recover-link').style.display = 'none';
+    document.getElementById('admin-recover-section').style.display = '';
+  });
+
   document.addEventListener('click', async (e) => {
     if (e.target.id !== 'admin-recover-btn') return;
     hideError();
@@ -158,6 +165,63 @@
       localStorage.setItem('haven_token', data.token);
       localStorage.setItem('haven_user', JSON.stringify(data.user));
       window.location.href = '/app';
+    } catch {
+      showError('Connection error');
+    }
+  });
+
+  // ── Forgot Password / Account Recovery ───────────────
+  const recoverForm = document.getElementById('recover-form');
+
+  function showRecoverForm() {
+    loginForm.style.display = 'none';
+    registerForm.style.display = 'none';
+    totpForm.style.display = 'none';
+    recoverForm.style.display = 'flex';
+    document.querySelector('.auth-tabs').style.display = 'none';
+    hideError();
+  }
+
+  function hideRecoverForm() {
+    recoverForm.style.display = 'none';
+    loginForm.style.display = 'flex';
+    document.querySelector('.auth-tabs').style.display = 'flex';
+    hideError();
+  }
+
+  document.getElementById('forgot-password-show').addEventListener('click', (e) => {
+    e.preventDefault();
+    showRecoverForm();
+  });
+
+  document.getElementById('recover-back-btn').addEventListener('click', (e) => {
+    e.preventDefault();
+    hideRecoverForm();
+  });
+
+  recoverForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideError();
+    const username = document.getElementById('recover-username').value.trim();
+    const code = document.getElementById('recover-code').value.trim().toUpperCase();
+    const newPassword = document.getElementById('recover-new-password').value;
+    const confirmPassword = document.getElementById('recover-confirm-password').value;
+    if (!username || !code || !newPassword || !confirmPassword) return showError('All fields are required');
+    if (newPassword.length < 8) return showError('Password must be at least 8 characters');
+    if (newPassword !== confirmPassword) return showError('Passwords do not match');
+    try {
+      const res = await fetch('/api/auth/recover-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, code, newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) return showError(data.error || 'Recovery failed');
+      // Success — go back to login with a success message
+      hideRecoverForm();
+      showError('Password reset successfully. You can now log in with your new password.');
+      document.getElementById('auth-error').style.color = 'var(--success, #2ecc71)';
+      document.getElementById('login-username').value = username;
     } catch {
       showError('Connection error');
     }

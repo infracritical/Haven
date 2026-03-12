@@ -148,6 +148,8 @@ _renderMessages(messages) {
   // Fetch link previews for all messages
   this._fetchLinkPreviews(container);
   this._setupVideos(container);
+  // Decrypt E2E images (async — renders as images load)
+  this._decryptE2EImages(container);
   // Mark as read (last message ID)
   if (messages.length > 0) {
     this._markRead(messages[messages.length - 1].id);
@@ -183,9 +185,32 @@ _prependMessages(messages) {
 
   container.insertBefore(fragment, firstChild);
 
+  // Force all newly-prepended elements to render at real height so that
+  // the scroll-position restoration below is accurate.  Without this,
+  // content-visibility:auto uses a 64px estimate for off-screen elements,
+  // causing the delta calculation to undershoot and the viewport to jump.
+  const added = messages.length;
+  for (let i = 0; i < added && i < container.children.length; i++) {
+    const child = container.children[i];
+    if (child.classList.contains('message') || child.classList.contains('message-compact')) {
+      child.style.contentVisibility = 'visible';
+    }
+  }
+
   // Restore scroll position so the view doesn't jump
   const newScrollHeight = container.scrollHeight;
   container.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+
+  // After scroll is restored, let content-visibility:auto resume for
+  // the prepended elements so the browser can skip rendering distant msgs.
+  requestAnimationFrame(() => {
+    for (let i = 0; i < added && i < container.children.length; i++) {
+      const child = container.children[i];
+      if (child.classList.contains('message') || child.classList.contains('message-compact')) {
+        child.style.contentVisibility = '';
+      }
+    }
+  });
 
   // ── DOM trimming: cap total messages to prevent unbounded growth ──
   // When scrolling up loads more history, trim excess messages from the
@@ -209,6 +234,7 @@ _prependMessages(messages) {
   // Fetch link previews for prepended messages
   this._fetchLinkPreviews(container);
   this._setupVideos(container);
+  this._decryptE2EImages(container);
 },
 
 /** Append newer messages to the bottom (forward pagination), trimming old ones from top */
@@ -250,6 +276,7 @@ _appendMessages(messages) {
 
   this._fetchLinkPreviews(container);
   this._setupVideos(container);
+  this._decryptE2EImages(container);
 
   // Mark as read so the server-side read position advances
   if (messages.length > 0) {
@@ -302,6 +329,7 @@ _appendMessage(message, forceScroll = false) {
   // Fetch link previews for this message
   this._fetchLinkPreviews(msgEl);
   this._setupVideos(msgEl);
+  this._decryptE2EImages(msgEl);
   if (wasAtBottom) {
     this._scrollToBottom(true);
   }
@@ -330,6 +358,8 @@ _appendMessage(message, forceScroll = false) {
 
 _createMessageEl(msg, prevMsg) {
   const isImage = this._isImageUrl(msg.content);
+  const curCh = this.channels && this.channels.find(c => c.code === this.currentChannel);
+  const isAnnouncement = curCh && curCh.notification_type === 'announcement';
   const isCompact = prevMsg &&
     prevMsg.user_id === msg.user_id &&
     !msg.reply_to &&
@@ -368,7 +398,7 @@ _createMessageEl(msg, prevMsg) {
 
   if (isCompact) {
     const el = document.createElement('div');
-    el.className = 'message-compact' + (msg.pinned ? ' pinned' : '') + (msg.is_archived ? ' archived' : '');
+    el.className = 'message-compact' + (msg.pinned ? ' pinned' : '') + (msg.is_archived ? ' archived' : '') + (isAnnouncement ? ' announcement' : '');
     el.dataset.userId = msg.user_id;
     el.dataset.username = msg.username;
     el.dataset.time = msg.created_at;
@@ -426,7 +456,7 @@ _createMessageEl(msg, prevMsg) {
     : msg.is_webhook ? '<span class="bot-badge">BOT</span>' : '';
 
   const el = document.createElement('div');
-  el.className = 'message' + (isImage ? ' message-has-image' : '') + (msg.pinned ? ' pinned' : '') + (msg.is_archived ? ' archived' : '') + (msg.is_webhook ? ' webhook-message' : '') + (msg.imported_from ? ' imported-message' : '');
+  el.className = 'message' + (isImage ? ' message-has-image' : '') + (msg.pinned ? ' pinned' : '') + (msg.is_archived ? ' archived' : '') + (msg.is_webhook ? ' webhook-message' : '') + (msg.imported_from ? ' imported-message' : '') + (isAnnouncement ? ' announcement' : '');
   el.dataset.userId = msg.user_id;
   el.dataset.time = msg.created_at;
   el.dataset.timeShort = new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
@@ -498,7 +528,8 @@ _promoteCompactToFull(compactEl) {
     : '';
 
   // Replace the compact element in-place
-  compactEl.className = 'message' + (isPinned ? ' pinned' : '');
+  const wasAnnouncement = compactEl.classList.contains('announcement');
+  compactEl.className = 'message' + (isPinned ? ' pinned' : '') + (wasAnnouncement ? ' announcement' : '');
   compactEl.dataset.userId = userId;
   compactEl.dataset.time = time;
   compactEl.dataset.msgId = msgId;

@@ -130,6 +130,10 @@ _setupSocketListeners() {
       this.socket.emit('set-status', this._pendingStatus);
       this._pendingStatus = null;
     }
+    // Show recovery-codes feature notice once per user (dismissible)
+    if (!localStorage.getItem('haven_recovery_notice_v1')) {
+      setTimeout(() => this._showRecoveryNotice(), 2500);
+    }
   });
   document.addEventListener('visibilitychange', () => {
     this.socket?.emit('visibility-change', { visible: !document.hidden });
@@ -290,26 +294,30 @@ _setupSocketListeners() {
 
     if (this._historyBefore) {
       // Pagination request — prepend older messages
-      this._loadingHistory = false;
       this._historyBefore = null;
       if (data.messages.length === 0) {
         this._noMoreHistory = true;
+        this._loadingHistory = false;
         return;
       }
       if (data.messages.length < 80) this._noMoreHistory = true;
       this._oldestMsgId = data.messages[0].id;
       this._prependMessages(data.messages);
+      // Release lock AFTER DOM manipulation so scroll-triggered re-requests
+      // don't fire while _prependMessages is adjusting scroll position.
+      this._loadingHistory = false;
     } else if (this._historyAfter) {
       // Forward pagination — append newer messages
-      this._loadingFuture = false;
       this._historyAfter = null;
       if (data.messages.length === 0) {
         this._noMoreFuture = true;
+        this._loadingFuture = false;
         return;
       }
       if (data.messages.length < 80) this._noMoreFuture = true;
       this._newestMsgId = data.messages[data.messages.length - 1].id;
       this._appendMessages(data.messages);
+      this._loadingFuture = false;
     } else {
       // Initial load — replace everything
       this._noMoreFuture = true;
@@ -349,10 +357,16 @@ _setupSocketListeners() {
       }
     }, { passive: true });
 
+    this._historyDebounce = 0; // timestamp of last history request
     msgContainer.addEventListener('scroll', () => {
-      if (msgContainer.scrollTop < 200 && !this._noMoreHistory && !this._loadingHistory && this._oldestMsgId && this.currentChannel) {
+      const now = Date.now();
+      if (msgContainer.scrollTop < 200 && !this._noMoreHistory && !this._loadingHistory && this._oldestMsgId && this.currentChannel && now - this._historyDebounce > 300) {
         this._loadingHistory = true;
         this._historyBefore = this._oldestMsgId;
+        this._historyDebounce = now;
+        // Uncouple from bottom so incoming messages don't auto-scroll
+        // while the user is browsing history.
+        this._coupledToBottom = false;
         this.socket.emit('get-messages', {
           code: this.currentChannel,
           before: this._oldestMsgId
@@ -361,9 +375,10 @@ _setupSocketListeners() {
       // Forward pagination: load newer messages when near the bottom and
       // the DOM window doesn't extend to the latest messages.
       const distBottom = msgContainer.scrollHeight - msgContainer.clientHeight - msgContainer.scrollTop;
-      if (distBottom < 200 && !this._noMoreFuture && !this._loadingFuture && this._newestMsgId && this.currentChannel) {
+      if (distBottom < 200 && !this._noMoreFuture && !this._loadingFuture && this._newestMsgId && this.currentChannel && now - this._historyDebounce > 300) {
         this._loadingFuture = true;
         this._historyAfter = this._newestMsgId;
+        this._historyDebounce = now;
         this.socket.emit('get-messages', {
           code: this.currentChannel,
           after: this._newestMsgId
@@ -416,10 +431,12 @@ _setupSocketListeners() {
       if (data.message.user_id !== this.user.id) {
         // Check if message contains @mention of current user
         const mentionRegex = new RegExp(`@${this.user.username}\\b`, 'i');
+        const _notifCh = this.channels.find(c => c.code === data.channelCode);
+        const _isAnnouncement = _notifCh && _notifCh.notification_type === 'announcement';
         if (mentionRegex.test(data.message.content)) {
           this.notifications.play('mention');
         } else {
-          this.notifications.play('message');
+          this.notifications.play(_isAnnouncement ? 'announcement' : 'message');
         }
         // Fire native OS notification if tab is hidden (alt-tabbed, minimised, etc.)
         if (document.hidden) {
@@ -441,10 +458,12 @@ _setupSocketListeners() {
       if (data.message.user_id !== this.user.id) {
         // Check @mention even in other channels
         const mentionRegex = new RegExp(`@${this.user.username}\\b`, 'i');
+        const _notifCh2 = this.channels.find(c => c.code === data.channelCode);
+        const _isAnnouncement2 = _notifCh2 && _notifCh2.notification_type === 'announcement';
         if (mentionRegex.test(data.message.content)) {
           this.notifications.play('mention');
         } else {
-          this.notifications.play('message');
+          this.notifications.play(_isAnnouncement2 ? 'announcement' : 'message');
         }
         // Fire native OS notification when tab/window is not visible
         this._fireNativeNotification(data.message, data.channelCode);

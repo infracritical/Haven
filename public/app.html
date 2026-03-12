@@ -902,6 +902,7 @@
           <div class="settings-nav-item" data-target="section-push">📲 Push</div>
           <div class="settings-nav-item" data-target="section-password">🔒 Password</div>
           <div class="settings-nav-item" data-target="section-2fa">🔐 Two-Factor</div>
+          <div class="settings-nav-item" data-target="section-recovery">🔑 Recovery</div>
           <div class="settings-nav-item" data-target="section-delete-account">⚠️ Account</div>
           <div class="settings-nav-item" data-target="section-plugins">🧩 Plugins & Themes</div>
           <div class="settings-nav-item" data-target="section-desktop-shortcuts" id="desktop-shortcuts-nav" style="display:none">⌨️ Shortcuts</div>
@@ -1222,6 +1223,32 @@
             <button class="btn-sm" id="totp-regen-backup-btn" style="flex:1">Regenerate Backup Codes</button>
           </div>
           <small class="settings-hint" id="totp-manage-status"></small>
+        </div>
+      </div>
+
+      <!-- Account Recovery Codes Section -->
+      <div class="settings-section" id="section-recovery">
+        <h5 class="settings-section-title">🔑 Account Recovery</h5>
+        <p class="settings-hint" style="margin-bottom:8px">Generate one-time recovery codes to regain access if you forget your password. Store them somewhere safe — they work like a last-resort key.</p>
+        <div class="settings-warning-box" id="recovery-e2e-warning" style="background:rgba(231,76,60,0.12);border:1px solid rgba(231,76,60,0.4);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:0.82rem;color:var(--text-secondary)">
+          ⚠️ <strong>Important:</strong> Using a recovery code to reset your password will permanently and irreversibly destroy your end-to-end encryption keys. All encrypted direct message history will become unreadable. There is no way to undo this.
+        </div>
+        <!-- Status -->
+        <p class="settings-hint" id="recovery-code-status" style="margin-bottom:10px"></p>
+        <!-- Generate flow -->
+        <div id="recovery-generate-area">
+          <div class="form-group compact">
+            <input type="password" id="recovery-gen-password" placeholder="Confirm your password" maxlength="128" autocomplete="current-password">
+          </div>
+          <button class="btn-sm btn-full" id="recovery-generate-btn">Generate Recovery Codes</button>
+          <small class="settings-hint" id="recovery-gen-status"></small>
+        </div>
+        <!-- Codes display (shown after generation) -->
+        <div id="recovery-codes-area" style="display:none">
+          <p class="settings-hint" style="margin-bottom:8px">Save these codes now — they will not be shown again. Each code can only be used once.</p>
+          <div id="recovery-codes-list" style="font-family:monospace;font-size:15px;line-height:2;background:var(--bg-primary);padding:12px;border-radius:8px;text-align:center;user-select:all"></div>
+          <button class="btn-sm btn-full" id="recovery-copy-btn" style="margin-top:8px">📋 Copy Codes</button>
+          <button class="btn-sm btn-full" id="recovery-codes-done-btn" style="margin-top:6px">Done</button>
         </div>
       </div>
 
@@ -1916,6 +1943,11 @@
       <div class="cfn-row" data-fn="user-limit" title="Limit simultaneous voice users (click to set; blank = unlimited)">
         <span class="cfn-label">👥 Voice Limit</span>
         <span class="cfn-badge cfn-off">∞</span>
+      </div>
+      <div class="cfn-divider"></div>
+      <div class="cfn-row" data-fn="announcement" title="Announcement channel — messages use a distinct notification sound and gold highlight">
+        <span class="cfn-label">📢 Announcement</span>
+        <span class="cfn-badge cfn-off">OFF</span>
       </div>
     </div>
     <button class="channel-ctx-item admin-only" data-action="channel-roles">👑 Roles</button>
