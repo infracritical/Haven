@@ -966,46 +966,6 @@ _setupUI() {
     localStorage.setItem('haven-sidebar-collapsed', collapsed ? '1' : '0');
   });
 
-  // DM pane collapse toggle (persisted to localStorage)
-  const dmPaneToggle = document.getElementById('dm-pane-toggle-btn');
-  const dmPane = document.getElementById('dm-pane');
-  const channelsPane = document.getElementById('channels-pane');
-
-  function applyDmPaneCollapsed(collapsed) {
-    if (!dmPane) return;
-    if (collapsed) {
-      // Save current flex ratio so we can restore it
-      const currentFlex = parseFloat(dmPane.style.flex) || 0.4;
-      if (currentFlex > 0) localStorage.setItem('haven-dm-pane-flex', currentFlex);
-      dmPane.style.flex = '0 0 0';
-      dmPane.style.minHeight = '0';
-      dmPane.style.overflow = 'hidden';
-      dmPane.style.opacity = '0';
-      dmPane.style.pointerEvents = 'none';
-      // Let channels fill the space
-      if (channelsPane) channelsPane.style.flex = '1 1 0';
-    } else {
-      const savedFlex = parseFloat(localStorage.getItem('haven-dm-pane-flex')) || 0.4;
-      const savedRatio = parseFloat(localStorage.getItem('haven_sidebar_split_ratio')) || 0.6;
-      dmPane.style.flex = `${1 - savedRatio} 1 0`;
-      dmPane.style.minHeight = '';
-      dmPane.style.overflow = '';
-      dmPane.style.opacity = '';
-      dmPane.style.pointerEvents = '';
-      if (channelsPane) channelsPane.style.flex = `${savedRatio} 1 0`;
-    }
-    dmPaneToggle?.classList.toggle('is-collapsed', collapsed);
-  }
-
-  applyDmPaneCollapsed(localStorage.getItem('haven-dm-pane-collapsed') === '1');
-
-  dmPaneToggle?.addEventListener('click', (e) => {
-    e.stopPropagation(); // don't trigger drag-handle logic
-    const collapsed = dmPane?.style.flex !== '0 0 0';
-    applyDmPaneCollapsed(collapsed);
-    localStorage.setItem('haven-dm-pane-collapsed', collapsed ? '1' : '0');
-  });
-
   // E2E lock menu dropdown toggle
   document.getElementById('e2e-menu-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
