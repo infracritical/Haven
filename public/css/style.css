@@ -3994,7 +3994,6 @@ html.rgb-cycling *::after {
 .messages {
   flex: 1;
   overflow-y: auto;
-  overflow-anchor: none;
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
@@ -4006,12 +4005,6 @@ html.rgb-cycling *::after {
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-sm);
-  /* Skip rendering/style-recalc for off-screen messages during RGB cycling.
-     Chromium omits content-visibility:auto elements from the style-cascade
-     update until they scroll into the viewport, which dramatically cuts the
-     per-tick cost of CSS-variable changes when many messages are in the DOM. */
-  content-visibility: auto;
-  contain-intrinsic-size: 0 64px;
 }
 
 .message:hover {
@@ -6509,10 +6502,7 @@ html.rgb-cycling *::after {
 
 .message, .message-compact { position: relative; }
 
-/* Override content-visibility:auto on messages that have a reaction picker open.
-   paint-containment from content-visibility clips absolutely-positioned children
-   (the picker sits above the message at top:-44px).                              */
-.message.showing-picker { content-visibility: visible; contain: none; }
+
 
 .msg-toolbar {
   position: absolute;

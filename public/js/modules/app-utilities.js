@@ -288,22 +288,6 @@ _scrollToBottom(force) {
   const el = document.getElementById('messages');
   if (force || this._coupledToBottom) {
     el.scrollTop = el.scrollHeight;
-    // content-visibility:auto estimates off-screen element heights at the
-    // intrinsic fallback (64px).  As elements enter/exit the viewport across
-    // successive frames the real heights replace estimates, shifting
-    // scrollHeight.  Fire several correction frames so the position settles
-    // at the true bottom.
-    let prev = -1;
-    let frames = 0;
-    const tick = () => {
-      el.scrollTop = Number.MAX_SAFE_INTEGER;
-      if (el.scrollHeight !== prev && frames < 8) {
-        prev = el.scrollHeight;
-        frames++;
-        requestAnimationFrame(tick);
-      }
-    };
-    requestAnimationFrame(tick);
     this._coupledToBottom = true;
   }
 },

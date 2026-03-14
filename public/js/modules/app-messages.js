@@ -130,15 +130,6 @@ _renderMessages(messages) {
     frag.appendChild(this._createMessageEl(messages[i], prevMsg));
   }
   container.appendChild(frag);
-  // Force the bottom-most messages to render at real height so the initial
-  // scroll-to-bottom calculation is accurate.  content-visibility:auto
-  // would estimate off-screen elements at 64px, skewing scrollHeight.
-  const children = container.children;
-  for (let i = Math.max(0, children.length - 15); i < children.length; i++) {
-    if (children[i].classList.contains('message')) {
-      children[i].style.contentVisibility = 'visible';
-    }
-  }
   this._scrollToBottom(true);
   // Re-scroll after images load — force-scroll since user should be at
   // bottom on initial channel load
@@ -161,9 +152,8 @@ _prependMessages(messages) {
   const container = document.getElementById('messages');
   const firstChild = container.firstChild;
 
-  // Capture the first visible message as a scroll anchor.  After prepending,
-  // we'll re-align to this element rather than relying on scrollHeight deltas
-  // (which are unstable when content-visibility:auto is in play).
+  // Capture a scroll anchor: the first visible message in the viewport.
+  // After prepending, we re-align to this element so the view stays put.
   let anchorEl = null;
   let anchorOffset = 0;
   if (firstChild) {
@@ -178,7 +168,6 @@ _prependMessages(messages) {
     }
   }
 
-  // We need prevMsg chain: older messages are oldest-first, then link to existing first message
   const fragment = document.createDocumentFragment();
   messages.forEach((msg, i) => {
     const prevMsg = i > 0 ? messages[i - 1] : null;
@@ -189,7 +178,6 @@ _prependMessages(messages) {
   if (firstChild && firstChild.dataset && messages.length > 0) {
     const lastPrepended = messages[messages.length - 1];
     const firstExisting = firstChild;
-    // Check if they should be grouped (same user, close timestamps)
     if (firstExisting.dataset.userId && parseInt(firstExisting.dataset.userId) === lastPrepended.user_id) {
       const timeDiff = new Date(firstExisting.dataset.time) - new Date(lastPrepended.created_at);
       if (timeDiff < 5 * 60 * 1000) {
@@ -198,15 +186,7 @@ _prependMessages(messages) {
     }
   }
 
-  // Suppress _coupledToBottom check while we mutate the DOM and restore scroll
-  this._suppressCoupleCheck = true;
-
-  // ── DOM trimming BEFORE insert ──────────────────────────────────────────────
-  // Trimming AFTER scroll restore causes scrollHeight to shrink, which clamps
-  // scrollTop to the new bottom.  That fires a scroll event where distBottom=0,
-  // forward pagination triggers, _coupledToBottom flips true, and _scrollToBottom
-  // yanks the user to the end of chat.  Trim first so the final scrollHeight is
-  // stable when the scroll restore runs.
+  // Trim from bottom BEFORE insert so scrollHeight is stable after scroll restore
   const MAX_DOM_MESSAGES = 100;
   const toTrim = Math.max(0, container.children.length + messages.length - MAX_DOM_MESSAGES);
   if (toTrim > 0) {
@@ -222,71 +202,14 @@ _prependMessages(messages) {
 
   container.insertBefore(fragment, firstChild);
 
-  // Force all newly-prepended elements to render at real height so that
-  // the scroll-position restoration below is accurate.  Without this,
-  // content-visibility:auto uses a 64px estimate for off-screen elements,
-  // causing the delta calculation to undershoot and the viewport to jump.
-  const added = messages.length;
-  for (let i = 0; i < added && i < container.children.length; i++) {
-    const child = container.children[i];
-    if (child.classList.contains('message') || child.classList.contains('message-compact')) {
-      child.style.contentVisibility = 'visible';
-    }
-  }
-
-  // Restore scroll position using the anchor element — this is stable even
-  // when content-visibility estimates cause scrollHeight to fluctuate.
+  // Restore scroll position so the user's view stays on the same content
   if (anchorEl) {
     const containerRect = container.getBoundingClientRect();
     const anchorRect = anchorEl.getBoundingClientRect();
     const drift = (anchorRect.top - containerRect.top) - anchorOffset;
     container.scrollTop += drift;
-  } else {
-    // Fallback: delta-based restore
-    const newScrollHeight = container.scrollHeight;
-    container.scrollTop = newScrollHeight - container.clientHeight;
   }
 
-  // Release content-visibility after a safe delay — give the browser enough
-  // frames to settle before estimates can change heights again.
-  setTimeout(() => {
-    for (let i = 0; i < added && i < container.children.length; i++) {
-      const child = container.children[i];
-      if (child.classList.contains('message') || child.classList.contains('message-compact')) {
-        child.style.contentVisibility = '';
-      }
-    }
-    // Re-align anchor after content-visibility release in case heights shifted
-    if (anchorEl) {
-      const containerRect = container.getBoundingClientRect();
-      const anchorRect = anchorEl.getBoundingClientRect();
-      const drift = (anchorRect.top - containerRect.top) - anchorOffset;
-      if (Math.abs(drift) > 2) container.scrollTop += drift;
-    }
-    this._suppressCoupleCheck = false;
-  }, 200);
-
-  // Images in prepended messages load asynchronously after the anchor was set.
-  // Re-run anchor correction each time one loads to prevent height-expansion jumps.
-  if (anchorEl) {
-    const correctForImageLoad = () => {
-      if (this._coupledToBottom) return;
-      const cr = container.getBoundingClientRect();
-      const ar = anchorEl.getBoundingClientRect();
-      const drift = (ar.top - cr.top) - anchorOffset;
-      if (Math.abs(drift) > 1) container.scrollTop += drift;
-    };
-    for (let i = 0; i < added && i < container.children.length; i++) {
-      container.children[i].querySelectorAll('img').forEach(img => {
-        if (!img.complete) {
-          img.addEventListener('load', correctForImageLoad, { once: true });
-          img.addEventListener('error', correctForImageLoad, { once: true });
-        }
-      });
-    }
-  }
-
-  // Fetch link previews for prepended messages
   this._fetchLinkPreviews(container);
   this._setupVideos(container);
   this._decryptE2EImages(container);
@@ -356,14 +279,6 @@ _appendMessage(message, forceScroll = false) {
 
   const wasAtBottom = forceScroll || this._coupledToBottom;
   const msgEl = this._createMessageEl(message, prevMsg);
-  // Root messages have content-visibility:auto with a 64px intrinsic
-  // fallback.  When appended at the bottom they start off-screen, so the
-  // browser uses the estimate instead of the real height — causing
-  // _scrollToBottom to fall short.  Force visible so the real height is
-  // used immediately; the element is in the viewport anyway.
-  if (msgEl.classList.contains('message')) {
-    msgEl.style.contentVisibility = 'visible';
-  }
   container.appendChild(msgEl);
 
   // ── DOM trimming: remove oldest messages when the list grows too large ──

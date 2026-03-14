@@ -342,29 +342,20 @@ _setupSocketListeners() {
   const msgContainer = document.getElementById('messages');
   if (msgContainer) {
     // Track whether the user is "coupled" to the bottom of the feed.
-    // Updated on scroll events (post-layout, so scrollHeight is reliable)
-    // rather than at arbitrary moments when content-visibility:auto may
-    // have shifted scrollHeight without updating scrollTop.
     this._coupledToBottom = true;
     msgContainer.addEventListener('scroll', () => {
-      // Don't update coupling state while prepending messages — the DOM
-      // mutations cause transient scroll positions that would false-trigger.
-      if (this._suppressCoupleCheck) return;
       const dist = msgContainer.scrollHeight - msgContainer.clientHeight - msgContainer.scrollTop;
       if (dist < 150) {
         this._coupledToBottom = true;
       } else if (dist > 300) {
-        // Hysteresis: only uncouple when scrolled significantly away,
-        // so minor content-visibility height fluctuations don't false-trigger.
+        // Hysteresis: only uncouple when scrolled a meaningful distance
+        // so small layout shifts from image loads don't false-trigger.
         this._coupledToBottom = false;
       }
     }, { passive: true });
 
     this._historyDebounce = 0; // timestamp of last history request
     msgContainer.addEventListener('scroll', () => {
-      // Same guard as the coupling listener — don't trigger pagination while
-      // _prependMessages is mutating the DOM and restoring scroll position.
-      if (this._suppressCoupleCheck) return;
       const now = Date.now();
       if (msgContainer.scrollTop < 200 && !this._noMoreHistory && !this._loadingHistory && this._oldestMsgId && this.currentChannel && now - this._historyDebounce > 300) {
         this._loadingHistory = true;
