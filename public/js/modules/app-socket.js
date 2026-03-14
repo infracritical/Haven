@@ -362,6 +362,9 @@ _setupSocketListeners() {
 
     this._historyDebounce = 0; // timestamp of last history request
     msgContainer.addEventListener('scroll', () => {
+      // Same guard as the coupling listener — don't trigger pagination while
+      // _prependMessages is mutating the DOM and restoring scroll position.
+      if (this._suppressCoupleCheck) return;
       const now = Date.now();
       if (msgContainer.scrollTop < 200 && !this._noMoreHistory && !this._loadingHistory && this._oldestMsgId && this.currentChannel && now - this._historyDebounce > 300) {
         this._loadingHistory = true;

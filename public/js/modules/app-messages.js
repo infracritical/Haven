@@ -201,6 +201,25 @@ _prependMessages(messages) {
   // Suppress _coupledToBottom check while we mutate the DOM and restore scroll
   this._suppressCoupleCheck = true;
 
+  // ── DOM trimming BEFORE insert ──────────────────────────────────────────────
+  // Trimming AFTER scroll restore causes scrollHeight to shrink, which clamps
+  // scrollTop to the new bottom.  That fires a scroll event where distBottom=0,
+  // forward pagination triggers, _coupledToBottom flips true, and _scrollToBottom
+  // yanks the user to the end of chat.  Trim first so the final scrollHeight is
+  // stable when the scroll restore runs.
+  const MAX_DOM_MESSAGES = 100;
+  const toTrim = Math.max(0, container.children.length + messages.length - MAX_DOM_MESSAGES);
+  if (toTrim > 0) {
+    for (let i = 0; i < toTrim; i++) {
+      container.removeChild(container.lastElementChild);
+    }
+    this._noMoreFuture = false;
+    const lastAfterTrim = container.lastElementChild;
+    if (lastAfterTrim && lastAfterTrim.dataset && lastAfterTrim.dataset.msgId) {
+      this._newestMsgId = parseInt(lastAfterTrim.dataset.msgId);
+    }
+  }
+
   container.insertBefore(fragment, firstChild);
 
   // Force all newly-prepended elements to render at real height so that
@@ -229,8 +248,7 @@ _prependMessages(messages) {
   }
 
   // Release content-visibility after a safe delay — give the browser enough
-  // frames to settle before estimates can change heights again.  We use a
-  // longer timeout to avoid the sub-frame race that caused jumping.
+  // frames to settle before estimates can change heights again.
   setTimeout(() => {
     for (let i = 0; i < added && i < container.children.length; i++) {
       const child = container.children[i];
@@ -249,12 +267,10 @@ _prependMessages(messages) {
   }, 200);
 
   // Images in prepended messages load asynchronously after the anchor was set.
-  // When an image in a prepended element loads, its height expands from 0 to
-  // the real size, pushing the anchor element down and causing a visible jump.
-  // Re-run anchor correction each time one of these images finishes loading.
+  // Re-run anchor correction each time one loads to prevent height-expansion jumps.
   if (anchorEl) {
     const correctForImageLoad = () => {
-      if (this._coupledToBottom) return; // user is at bottom, no correction needed
+      if (this._coupledToBottom) return;
       const cr = container.getBoundingClientRect();
       const ar = anchorEl.getBoundingClientRect();
       const drift = (ar.top - cr.top) - anchorOffset;
@@ -267,25 +283,6 @@ _prependMessages(messages) {
           img.addEventListener('error', correctForImageLoad, { once: true });
         }
       });
-    }
-  }
-
-  // ── DOM trimming: cap total messages to prevent unbounded growth ──
-  // When scrolling up loads more history, trim excess messages from the
-  // bottom to keep total DOM nodes manageable.
-  const MAX_DOM_MESSAGES = 100;
-  const children = container.children;
-  if (children.length > MAX_DOM_MESSAGES) {
-    const excess = children.length - MAX_DOM_MESSAGES;
-    for (let i = 0; i < excess; i++) {
-      container.removeChild(container.lastElementChild);
-    }
-    // Newer messages were trimmed — forward pagination is now needed
-    this._noMoreFuture = false;
-    // Update _newestMsgId to match what's still in the DOM
-    const lastChild = container.lastElementChild;
-    if (lastChild && lastChild.dataset && lastChild.dataset.msgId) {
-      this._newestMsgId = parseInt(lastChild.dataset.msgId);
     }
   }
 
